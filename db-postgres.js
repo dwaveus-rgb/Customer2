@@ -1,7 +1,14 @@
 const { Pool } = require('pg');
 
+let dbUrl = process.env.DATABASE_URL || '';
+try {
+  const url = new URL(dbUrl);
+  url.password = encodeURIComponent(url.password);
+  dbUrl = url.toString();
+} catch (e) {}
+
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: dbUrl,
   ssl: { rejectUnauthorized: false }
 });
 
