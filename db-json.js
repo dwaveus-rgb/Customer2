@@ -10,7 +10,7 @@ function load() {
   if (fs.existsSync(dbPath)) {
     return JSON.parse(fs.readFileSync(dbPath, 'utf8'));
   }
-  return { bots: [], settings: {}, chatLogs: [], analytics: [] };
+  return { bots: [], settings: {} };
 }
 
 function save(data) {
@@ -40,7 +40,6 @@ for (const [key, value] of Object.entries(defaults)) {
 save(data);
 
 let nextBotId = data.bots.length > 0 ? Math.max(...data.bots.map(b => b.id)) + 1 : 1;
-let nextLogId = data.chatLogs.length > 0 ? Math.max(...data.chatLogs.map(l => l.id)) + 1 : 1;
 
 module.exports = {
   getSetting: async (key) => data.settings[key],
@@ -57,24 +56,5 @@ module.exports = {
   removeBot: async (id) => { data.bots = data.bots.filter(b => b.id !== id); save(data); },
   getBots: async () => [...data.bots],
   getBot: async (id) => data.bots.find(b => b.id === id) || null,
-  updateBot: async (id, fields) => { const bot = data.bots.find(b => b.id === id); if (bot) { Object.assign(bot, fields); save(data); } },
-  logChat: async (botId, botName, message, channelId) => {
-    data.chatLogs.push({ id: nextLogId++, bot_id: botId, bot_name: botName, message, channel_id: channelId, timestamp: new Date().toISOString() });
-    if (data.chatLogs.length > 500) data.chatLogs = data.chatLogs.slice(-500);
-    save(data);
-  },
-  getChatLogs: async (limit = 100) => data.chatLogs.slice(-limit).reverse(),
-  logEvent: async (type, botId, eventData) => {
-    data.analytics.push({ event_type: type, bot_id: botId, data: eventData, timestamp: new Date().toISOString() });
-  },
-  getAnalytics: async () => {
-    const totalMessages = data.chatLogs.length;
-    const activeBots = data.bots.filter(b => b.is_active === 1).length;
-    const totalBots = data.bots.length;
-    const recentLogs = data.chatLogs.slice(-20).reverse();
-    const botCounts = {};
-    data.chatLogs.forEach(l => { botCounts[l.bot_name] = (botCounts[l.bot_name] || 0) + 1; });
-    const messagesByBot = Object.entries(botCounts).map(([bot_name, count]) => ({ bot_name, count })).sort((a, b) => b.count - a.count);
-    return { totalMessages, activeBots, totalBots, recentLogs, messagesByBot };
-  }
+  updateBot: async (id, fields) => { const bot = data.bots.find(b => b.id === id); if (bot) { Object.assign(bot, fields); save(data); } }
 };

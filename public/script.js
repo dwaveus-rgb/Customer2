@@ -81,17 +81,18 @@ async function loadAll() {
   loadDashboard();
   loadBots();
   loadSettings();
-  loadLogs();
 }
 
 async function loadDashboard() {
-  const analytics = await fetch('/api/analytics').then(r => r.json());
-  document.getElementById('stat-total-bots').textContent = analytics.totalBots;
-  document.getElementById('stat-active-bots').textContent = analytics.activeBots;
-  document.getElementById('stat-total-messages').textContent = analytics.totalMessages;
+  const bots = await fetch('/api/bots').then(r => r.json());
+  const activeCount = bots.filter(b => b.is_running).length;
+  const settings = await fetch('/api/settings').then(r => r.json());
+
+  document.getElementById('stat-total-bots').textContent = bots.length;
+  document.getElementById('stat-active-bots').textContent = activeCount;
 
   const badge = document.getElementById('status-badge');
-  if (analytics.activeBots > 0) {
+  if (activeCount > 0) {
     badge.textContent = 'Online';
     badge.className = 'badge badge-on';
   } else {
@@ -99,24 +100,6 @@ async function loadDashboard() {
     badge.className = 'badge badge-off';
   }
 
-  // Messages by bot chart
-  const container = document.getElementById('messages-by-bot');
-  if (analytics.messagesByBot.length === 0) {
-    container.innerHTML = '<div class="empty-state">No messages yet</div>';
-  } else {
-    const max = Math.max(...analytics.messagesByBot.map(b => b.count));
-    container.innerHTML = analytics.messagesByBot.map(b => `
-      <div class="bot-bar">
-        <div class="bot-bar-name">${esc(b.bot_name)}</div>
-        <div class="bot-bar-track">
-          <div class="bot-bar-fill" style="width: ${max > 0 ? (b.count / max * 100) : 0}%"></div>
-        </div>
-        <div class="bot-bar-count">${b.count}</div>
-      </div>
-    `).join('');
-  }
-
-  const settings = await fetch('/api/settings').then(r => r.json());
   document.getElementById('current-topic').textContent = settings.topic || 'Not set';
 }
 
@@ -151,22 +134,6 @@ async function loadSettings() {
     const el = document.getElementById('set-' + key);
     if (el) el.value = value;
   }
-}
-
-async function loadLogs() {
-  const logs = await fetch('/api/logs?limit=50').then(r => r.json());
-  const container = document.getElementById('log-list');
-  if (logs.length === 0) {
-    container.innerHTML = '<div class="empty-state">No logs yet</div>';
-    return;
-  }
-  container.innerHTML = logs.map(l => `
-    <div class="log-item">
-      <span class="log-bot">${esc(l.bot_name)}</span>
-      <span>${esc(l.message)}</span>
-      <div class="log-meta">${l.timestamp}</div>
-    </div>
-  `).join('');
 }
 
 // --- Actions ---

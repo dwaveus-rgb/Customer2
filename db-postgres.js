@@ -26,25 +26,6 @@ async function initDB() {
         created_at TIMESTAMP DEFAULT NOW()
       );
     `);
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS chat_logs (
-        id SERIAL PRIMARY KEY,
-        bot_id INTEGER,
-        bot_name VARCHAR(255),
-        message TEXT,
-        channel_id VARCHAR(255),
-        timestamp TIMESTAMP DEFAULT NOW()
-      );
-    `);
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS analytics (
-        id SERIAL PRIMARY KEY,
-        event_type VARCHAR(255),
-        bot_id INTEGER,
-        data JSONB,
-        timestamp TIMESTAMP DEFAULT NOW()
-      );
-    `);
 
     const defaults = {
       topic: 'what is the best discord server and why',
@@ -83,16 +64,5 @@ module.exports = {
   removeBot: async (id) => { await pool.query('DELETE FROM bots WHERE id = $1', [id]); },
   getBots: async () => { const res = await pool.query('SELECT * FROM bots ORDER BY id'); return res.rows; },
   getBot: async (id) => { const res = await pool.query('SELECT * FROM bots WHERE id = $1', [id]); return res.rows[0] || null; },
-  updateBot: async (id, fields) => { const keys = Object.keys(fields); const values = Object.values(fields); const set = keys.map((k, i) => `${k} = $${i + 1}`).join(', '); await pool.query(`UPDATE bots SET ${set} WHERE id = $${keys.length + 1}`, [...values, id]); },
-  logChat: async (botId, botName, message, channelId) => { await pool.query('INSERT INTO chat_logs (bot_id, bot_name, message, channel_id) VALUES ($1, $2, $3, $4)', [botId, botName, message, channelId]); await pool.query('DELETE FROM chat_logs WHERE id NOT IN (SELECT id FROM chat_logs ORDER BY timestamp DESC LIMIT 500)'); },
-  getChatLogs: async (limit = 100) => { const res = await pool.query('SELECT * FROM chat_logs ORDER BY timestamp DESC LIMIT $1', [limit]); return res.rows; },
-  logEvent: async (type, botId, eventData) => { await pool.query('INSERT INTO analytics (event_type, bot_id, data) VALUES ($1, $2, $3)', [type, botId, JSON.stringify(eventData)]); },
-  getAnalytics: async () => {
-    const totalRes = await pool.query('SELECT COUNT(*) as count FROM chat_logs');
-    const activeRes = await pool.query('SELECT COUNT(*) as count FROM bots WHERE is_active = 1');
-    const totalRes2 = await pool.query('SELECT COUNT(*) as count FROM bots');
-    const recentRes = await pool.query('SELECT * FROM chat_logs ORDER BY timestamp DESC LIMIT 20');
-    const botCountsRes = await pool.query('SELECT bot_name, COUNT(*) as count FROM chat_logs GROUP BY bot_name ORDER BY count DESC');
-    return { totalMessages: parseInt(totalRes.rows[0].count), activeBots: parseInt(activeRes.rows[0].count), totalBots: parseInt(totalRes2.rows[0].count), recentLogs: recentRes.rows, messagesByBot: botCountsRes.rows };
-  }
+  updateBot: async (id, fields) => { const keys = Object.keys(fields); const values = Object.values(fields); const set = keys.map((k, i) => `${k} = $${i + 1}`).join(', '); await pool.query(`UPDATE bots SET ${set} WHERE id = $${keys.length + 1}`, [...values, id]); }
 };

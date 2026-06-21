@@ -45,7 +45,6 @@ class BotManager {
     client.once(Events.ClientReady, async () => {
       console.log(`[BotManager] ${client.user.tag} is online!`);
       await db.updateBot(botData.id, { is_active: 1 });
-      await db.logEvent('bot_online', botData.id, { name: botData.name });
 
       this.bots.set(botData.id, { client, data: botData });
       this.cooldowns.set(botData.id, 0);
@@ -80,7 +79,6 @@ class BotManager {
     this.bots.delete(botId);
     this.cooldowns.delete(botId);
     await db.updateBot(botId, { is_active: 0 });
-    await db.logEvent('bot_offline', botId, { name: entry.data.name });
     console.log(`[BotManager] ${entry.data.name} stopped`);
   }
 
@@ -151,7 +149,6 @@ class BotManager {
           });
           if (this.recentMessages.length > this.maxRecent) this.recentMessages.shift();
 
-          await db.logChat(botId, botData.name, reply, botData.channel_id);
           console.log(`[BotManager] ${botData.name}: ${reply}`);
         }
       } catch (err) {
@@ -214,7 +211,6 @@ class BotManager {
     if (!channel) throw new Error('Channel not found');
 
     await channel.send(message);
-    await db.logChat(botId, entry.data.name, message, entry.data.channel_id);
   }
 }
 

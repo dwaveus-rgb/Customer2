@@ -123,17 +123,6 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  app.get('/api/logs', requireAuth, async (req, res) => {
-    const limit = parseInt(req.query.limit) || 100;
-    const logs = await db.getChatLogs(limit);
-    res.json(logs);
-  });
-
-  app.get('/api/analytics', requireAuth, async (req, res) => {
-    const analytics = await db.getAnalytics();
-    res.json(analytics);
-  });
-
   app.post('/api/bots/:id/send', requireAuth, async (req, res) => {
     const id = parseInt(req.params.id);
     const { message } = req.body;

@@ -30,7 +30,6 @@
       <button class="nav-btn active" data-tab="dashboard">Dashboard</button>
       <button class="nav-btn" data-tab="bots">Bots</button>
       <button class="nav-btn" data-tab="settings">Settings</button>
-      <button class="nav-btn" data-tab="logs">Logs</button>
     </nav>
 
     <main>
@@ -44,10 +43,6 @@
           <div class="stat-card">
             <div class="stat-value" id="stat-active-bots">0</div>
             <div class="stat-label">Active Bots</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-value" id="stat-total-messages">0</div>
-            <div class="stat-label">Messages Sent</div>
           </div>
         </div>
 
@@ -67,11 +62,6 @@
             <input type="text" id="new-topic" placeholder="Enter new topic..." />
             <button class="btn-primary" onclick="updateTopic()">Update Topic</button>
           </div>
-        </div>
-
-        <div class="card">
-          <h3>Messages by Bot</h3>
-          <div id="messages-by-bot"></div>
         </div>
       </section>
 
@@ -155,14 +145,6 @@
         </div>
 
         <button class="btn-primary" onclick="saveSettings()">Save Settings</button>
-      </section>
-
-      <!-- Logs -->
-      <section id="tab-logs" class="tab">
-        <div class="card">
-          <h3>Recent Chat Logs</h3>
-          <div id="log-list" class="log-list"></div>
-        </div>
       </section>
     </main>
   </div>
