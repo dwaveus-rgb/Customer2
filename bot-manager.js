@@ -51,6 +51,14 @@ class BotManager {
       this.scheduleActivity(botData.id);
     });
 
+    setTimeout(async () => {
+      if (!this.bots.has(botData.id)) {
+        console.error(`[BotManager] Bot "${botData.name}" timed out waiting for READY event`);
+        try { client.destroy(); } catch (e) {}
+        await db.updateBot(botData.id, { is_active: 0 });
+      }
+    }, 30000);
+
     client.on(Events.MessageCreate, async (message) => {
       if (message.author.bot) return;
       if (message.channel.id !== botData.channel_id) return;
@@ -63,10 +71,21 @@ class BotManager {
       if (this.recentMessages.length > this.maxRecent) this.recentMessages.shift();
     });
 
+    client.on(Events.Error, (err) => {
+      console.error(`[BotManager] WebSocket error for ${botData.name}:`, err.message);
+    });
+
+    client.on(Events.Debug, (msg) => {
+      console.log(`[BotManager] Debug ${botData.name}: ${msg}`);
+    });
+
     try {
+      console.log(`[BotManager] Attempting login for "${botData.name}"...`);
       await client.login(botData.token);
+      console.log(`[BotManager] Login call succeeded for "${botData.name}", waiting for READY...`);
     } catch (err) {
       console.error(`[BotManager] Failed to start "${botData.name}": ${err.message}`);
+      console.error(`[BotManager] Stack: ${err.stack}`);
       await db.updateBot(botData.id, { is_active: 0 });
     }
   }
