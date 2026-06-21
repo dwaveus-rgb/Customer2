@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Discord Gemini Chat — Admin</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="login-screen">
+    <div class="login-box">
+      <h2>Admin Login</h2>
+      <input type="password" id="login-password" placeholder="Password" />
+      <button onclick="doLogin()">Login</button>
+      <p id="login-error"></p>
+    </div>
+  </div>
+
+  <div id="app" style="display:none;">
+    <header>
+      <h1>Discord Gemini Chat</h1>
+      <div class="header-right">
+        <span id="status-badge" class="badge badge-off">Offline</span>
+        <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">☀</button>
+        <button class="btn-small btn-logout" onclick="doLogout()">Logout</button>
+      </div>
+    </header>
+
+    <nav>
+      <button class="nav-btn active" data-tab="dashboard">Dashboard</button>
+      <button class="nav-btn" data-tab="bots">Bots</button>
+      <button class="nav-btn" data-tab="settings">Settings</button>
+      <button class="nav-btn" data-tab="logs">Logs</button>
+    </nav>
+
+    <main>
+      <!-- Dashboard -->
+      <section id="tab-dashboard" class="tab active">
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-value" id="stat-total-bots">0</div>
+            <div class="stat-label">Total Bots</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="stat-active-bots">0</div>
+            <div class="stat-label">Active Bots</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="stat-total-messages">0</div>
+            <div class="stat-label">Messages Sent</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Quick Actions</h3>
+          <div class="action-row">
+            <button class="btn-primary" onclick="startAllBots()">Start All Bots</button>
+            <button class="btn-danger" onclick="stopAllBots()">Stop All Bots</button>
+            <button class="btn-secondary" onclick="refreshDashboard()">Refresh</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Current Topic</h3>
+          <div class="topic-display" id="current-topic">Loading...</div>
+          <div class="topic-edit">
+            <input type="text" id="new-topic" placeholder="Enter new topic..." />
+            <button class="btn-primary" onclick="updateTopic()">Update Topic</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Messages by Bot</h3>
+          <div id="messages-by-bot"></div>
+        </div>
+      </section>
+
+      <!-- Bots -->
+      <section id="tab-bots" class="tab">
+        <div class="card">
+          <h3>Add Bot</h3>
+          <div class="form-grid">
+            <input type="text" id="bot-name" placeholder="Bot Name" />
+            <input type="text" id="bot-token" placeholder="Bot Token" />
+            <input type="text" id="bot-channel" placeholder="Channel ID" />
+            <input type="text" id="bot-server" placeholder="Server/Guild ID" />
+            <select id="bot-personality">
+              <option value="friendly">Friendly</option>
+              <option value="funny">Funny</option>
+              <option value="chill">Chill</option>
+              <option value="nerdy">Nerdy</option>
+              <option value="sarcastic">Sarcastic</option>
+              <option value="hype">Hype</option>
+              <option value="quiet">Quiet</option>
+            </select>
+            <button class="btn-primary" onclick="addBot()">Add Bot</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Bot List</h3>
+          <div id="bot-list" class="bot-list"></div>
+        </div>
+      </section>
+
+      <!-- Settings -->
+      <section id="tab-settings" class="tab">
+        <div class="card">
+          <h3>AI API</h3>
+          <input type="password" id="set-ai_api_key" placeholder="OpenRouter API Key" />
+        </div>
+
+        <div class="card">
+          <h3>Chat Behavior</h3>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Topic</label>
+              <input type="text" id="set-topic" />
+            </div>
+            <div class="form-group">
+              <label>Min Delay (ms between messages)</label>
+              <input type="number" id="set-min_delay" />
+            </div>
+            <div class="form-group">
+              <label>Max Delay (ms between messages)</label>
+              <input type="number" id="set-max_delay" />
+            </div>
+            <div class="form-group">
+              <label>Typing Duration Min (ms)</label>
+              <input type="number" id="set-typing_min" />
+            </div>
+            <div class="form-group">
+              <label>Typing Duration Max (ms)</label>
+              <input type="number" id="set-typing_max" />
+            </div>
+            <div class="form-group">
+              <label>Max Message Length</label>
+              <input type="number" id="set-max_length" />
+            </div>
+            <div class="form-group">
+              <label>Topic Change Interval (min)</label>
+              <input type="number" id="set-topic_change_interval" />
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Security</h3>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Admin Password</label>
+              <input type="password" id="set-admin_password" />
+            </div>
+          </div>
+        </div>
+
+        <button class="btn-primary" onclick="saveSettings()">Save Settings</button>
+      </section>
+
+      <!-- Logs -->
+      <section id="tab-logs" class="tab">
+        <div class="card">
+          <h3>Recent Chat Logs</h3>
+          <div id="log-list" class="log-list"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+{
+  "name": "discord-gemini-chat",
+  "version": "1.0.0",
+  "description": "Multi-bot Discord chat system powered by AI",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0",
+    "discord.js": "^14.26.4",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "express-session": "^1.18.1",
+    "openai": "^6.44.0",
+    "pg": "^8.16.0"
+  }
+}
+}
