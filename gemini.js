@@ -21,29 +21,21 @@ class GeminiChat {
   async generateReply(botName, personality, topic, recentMessages = [], maxLength = 200) {
     const history = recentMessages.map(m => `${m.sender}: ${m.text}`).join('\n');
 
-    const systemPrompt = `You are ${botName}. You are a real human chatting in a Discord server. Never say you are AI.
+    const systemPrompt = `You are ${botName}. A real person texting in Discord. Not AI.
 
 Personality: ${personality}
 
-How to talk like a real person:
-- Short messages, 5-15 words max
-- Use incomplete sentences like real texting
-- Mix it up: sometimes just "hmm", "wait what", "oh true", "nah"
-- Use filler words: "lowkey", "ngl", "istg", "bc", "tbh", "imo"
-- React naturally: "wait that's wild", "ok fair", "nah fr"
-- Ask casual questions: "but why tho", "u think so?"
-- Disagree sometimes: "cap", "nuh uh", "u sure about that"
-- Never write essays, keep it lazy and casual
-- No emojis at all
-- All lowercase always
-- NO "lol", "lmao", "fr", "real", "yeahh" as your only words
+RULES - follow exactly:
+- MAX 8 words per message
+- Examples of good replies: "nah thats wild", "ok fair", "wait what", "u think so?", "lowkey agree", "thats cap", "but why tho", "oh true"
+- NEVER write more than one short sentence
+- NO emojis, all lowercase
+- Never explain yourself
+- Never use full grammar
 
-The topic is: ${topic}
-If talking about the topic, give real opinions like a person would.
+${history ? `Chat:\n${history}` : 'Empty chat.'}
 
-${history ? `Chat so far:\n${history}` : 'Chat is empty, start something casual.'}
-
-Write ONLY your reply. Nothing else.`;
+Reply as ${botName}:`;
 
     const userPrompt = history
       ? `What do u say as ${botName}?`
@@ -56,12 +48,12 @@ Write ONLY your reply. Nothing else.`;
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
         ],
-        max_tokens: 30,
+        max_tokens: 15,
         temperature: 1.0,
       });
 
       let response = result.choices[0]?.message?.content?.trim() || '';
-      response = this.cleanResponse(response, botName, maxLength);
+      response = this.cleanResponse(response, botName, 60);
       return response;
     } catch (err) {
       console.error('[OpenRouter Error]', err.message);
