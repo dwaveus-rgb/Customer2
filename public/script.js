@@ -1,49 +1,3 @@
-let isLoggedIn = false;
-
-// --- Auth ---
-async function checkAuth() {
-  const res = await fetch('/api/auth');
-  const data = await res.json();
-  if (data.authenticated) {
-    isLoggedIn = true;
-    document.getElementById('login-screen').style.display = 'none';
-    document.getElementById('app').style.display = 'block';
-    loadAll();
-  } else {
-    document.getElementById('login-screen').style.display = 'flex';
-    document.getElementById('app').style.display = 'none';
-  }
-}
-
-async function doLogin() {
-  const pw = document.getElementById('login-password').value;
-  const res = await fetch('/api/login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password: pw })
-  });
-  const data = await res.json();
-  if (data.success) {
-    document.getElementById('login-screen').style.display = 'none';
-    document.getElementById('app').style.display = 'block';
-    isLoggedIn = true;
-    loadAll();
-  } else {
-    document.getElementById('login-error').textContent = 'Wrong password';
-  }
-}
-
-async function doLogout() {
-  await fetch('/api/logout', { method: 'POST' });
-  isLoggedIn = false;
-  document.getElementById('app').style.display = 'none';
-  document.getElementById('login-screen').style.display = 'flex';
-}
-
-document.getElementById('login-password').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') doLogin();
-});
-
 // --- Tabs ---
 document.querySelectorAll('.nav-btn').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -215,7 +169,7 @@ async function updateTopic() {
 async function saveSettings() {
   const fields = [
     'ai_api_key', 'topic', 'min_delay', 'max_delay',
-    'typing_min', 'typing_max', 'max_length', 'topic_change_interval', 'admin_password'
+    'typing_min', 'typing_max', 'max_length', 'topic_change_interval'
   ];
   const payload = {};
   for (const f of fields) {
@@ -241,10 +195,6 @@ function esc(str) {
 }
 
 // Auto refresh
-setInterval(() => {
-  if (isLoggedIn) {
-    loadDashboard();
-  }
-}, 10000);
+setInterval(loadDashboard, 10000);
 
-checkAuth();
+loadAll();

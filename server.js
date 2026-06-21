@@ -1,6 +1,5 @@
 require('dotenv').config();
 const express = require('express');
-const session = require('express-session');
 const path = require('path');
 const db = require('./db');
 const botManager = require('./bot-manager');
@@ -10,52 +9,14 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
-const sessionSecret = process.env.ADMIN_PASSWORD || 'admin';
-app.use(session({
-  secret: sessionSecret,
-  resave: false,
-  saveUninitialized: false,
-  cookie: { maxAge: 24 * 60 * 60 * 1000 }
-}));
-
 app.use(express.static(path.join(__dirname, 'public')));
 
-function requireAuth(req, res, next) {
-  if (req.session && req.session.authenticated) return next();
-  res.status(401).json({ error: 'Unauthorized' });
-}
-
-app.post('/api/login', async (req, res) => {
-  try {
-    const { password } = req.body;
-    const adminPassword = await db.getSetting('admin_password');
-    if (password === adminPassword) {
-      req.session.authenticated = true;
-      res.json({ success: true });
-    } else {
-      res.status(401).json({ error: 'Wrong password' });
-    }
-  } catch (err) {
-    res.status(500).json({ error: 'Server starting up...' });
-  }
-});
-
-app.post('/api/logout', (req, res) => {
-  req.session.destroy();
-  res.json({ success: true });
-});
-
-app.get('/api/auth', (req, res) => {
-  res.json({ authenticated: !!req.session.authenticated });
-});
-
-app.get('/api/settings', requireAuth, async (req, res) => {
+app.get('/api/settings', async (req, res) => {
   const settings = await db.getAllSettings();
   res.json(settings);
 });
 
-app.put('/api/settings', requireAuth, async (req, res) => {
+app.put('/api/settings', async (req, res) => {
   const settings = req.body;
   for (const [key, value] of Object.entries(settings)) {
     await db.setSetting(key, value);
@@ -64,7 +25,7 @@ app.put('/api/settings', requireAuth, async (req, res) => {
   res.json({ success: true });
 });
 
-app.get('/api/bots', requireAuth, async (req, res) => {
+app.get('/api/bots', async (req, res) => {
   const bots = await db.getBots();
   const active = botManager.getActiveBots();
   const activeIds = active.map(b => b.id);
@@ -76,7 +37,7 @@ app.get('/api/bots', requireAuth, async (req, res) => {
   })));
 });
 
-app.post('/api/bots', requireAuth, async (req, res) => {
+app.post('/api/bots', async (req, res) => {
   const { name, token, channel_id, server_id, personality } = req.body;
   if (!name || !token || !channel_id || !server_id) {
     return res.status(400).json({ error: 'Missing fields' });
@@ -89,14 +50,14 @@ app.post('/api/bots', requireAuth, async (req, res) => {
   }
 });
 
-app.delete('/api/bots/:id', requireAuth, async (req, res) => {
+app.delete('/api/bots/:id', async (req, res) => {
   const id = parseInt(req.params.id);
   await botManager.stopBot(id);
   await db.removeBot(id);
   res.json({ success: true });
 });
 
-app.post('/api/bots/:id/start', requireAuth, async (req, res) => {
+app.post('/api/bots/:id/start', async (req, res) => {
   const id = parseInt(req.params.id);
   const bot = await db.getBot(id);
   if (!bot) return res.status(404).json({ error: 'Bot not found' });
@@ -108,23 +69,23 @@ app.post('/api/bots/:id/start', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/bots/:id/stop', requireAuth, async (req, res) => {
+app.post('/api/bots/:id/stop', async (req, res) => {
   const id = parseInt(req.params.id);
   await botManager.stopBot(id);
   res.json({ success: true });
 });
 
-app.post('/api/bots/start-all', requireAuth, async (req, res) => {
+app.post('/api/bots/start-all', async (req, res) => {
   await botManager.startAll();
   res.json({ success: true });
 });
 
-app.post('/api/bots/stop-all', requireAuth, async (req, res) => {
+app.post('/api/bots/stop-all', async (req, res) => {
   await botManager.stopAll();
   res.json({ success: true });
 });
 
-app.post('/api/bots/:id/send', requireAuth, async (req, res) => {
+app.post('/api/bots/:id/send', async (req, res) => {
   const id = parseInt(req.params.id);
   const { message } = req.body;
   try {

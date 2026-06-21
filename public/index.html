@@ -7,22 +7,12 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div id="login-screen">
-    <div class="login-box">
-      <h2>Admin Login</h2>
-      <input type="password" id="login-password" placeholder="Password" />
-      <button type="button" onclick="doLogin()">Login</button>
-      <p id="login-error"></p>
-    </div>
-  </div>
-
-  <div id="app" style="display:none;">
+  <div id="app">
     <header>
       <h1>Discord Gemini Chat</h1>
       <div class="header-right">
         <span id="status-badge" class="badge badge-off">Offline</span>
         <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">☀</button>
-        <button class="btn-small btn-logout" onclick="doLogout()">Logout</button>
       </div>
     </header>
 
@@ -130,16 +120,6 @@
             <div class="form-group">
               <label>Topic Change Interval (min)</label>
               <input type="number" id="set-topic_change_interval" />
-            </div>
-          </div>
-        </div>
-
-        <div class="card">
-          <h3>Security</h3>
-          <div class="form-grid">
-            <div class="form-group">
-              <label>Admin Password</label>
-              <input type="password" id="set-admin_password" />
             </div>
           </div>
         </div>
