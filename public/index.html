@@ -59,21 +59,40 @@
       <section id="tab-bots" class="tab">
         <div class="card">
           <h3>Add Bot</h3>
+          <div class="form-group" style="margin-bottom:0.8rem">
+            <label>Bot Name</label>
+            <input type="text" id="bot-name" placeholder="e.g. MySelf" />
+          </div>
+          <div class="form-group" style="margin-bottom:0.8rem">
+            <label>User Token</label>
+            <input type="password" id="bot-token" placeholder="Paste your Discord user token here" />
+          </div>
+          <div class="form-grid" style="margin-bottom:0.8rem">
+            <div class="form-group">
+              <label>Server / Guild ID</label>
+              <input type="text" id="bot-server" placeholder="Right-click server > Copy ID" />
+            </div>
+            <div class="form-group">
+              <label>Channel ID</label>
+              <input type="text" id="bot-channel" placeholder="Right-click channel > Copy ID" />
+            </div>
+          </div>
           <div class="form-grid">
-            <input type="text" id="bot-name" placeholder="Bot Name" />
-            <input type="text" id="bot-token" placeholder="Bot Token" />
-            <input type="text" id="bot-channel" placeholder="Channel ID" />
-            <input type="text" id="bot-server" placeholder="Server/Guild ID" />
-            <select id="bot-personality">
-              <option value="friendly">Friendly</option>
-              <option value="funny">Funny</option>
-              <option value="chill">Chill</option>
-              <option value="nerdy">Nerdy</option>
-              <option value="sarcastic">Sarcastic</option>
-              <option value="hype">Hype</option>
-              <option value="quiet">Quiet</option>
-            </select>
-            <button class="btn-primary" onclick="addBot()">Add Bot</button>
+            <div class="form-group">
+              <label>Personality</label>
+              <select id="bot-personality">
+                <option value="friendly">Friendly</option>
+                <option value="funny">Funny</option>
+                <option value="chill">Chill</option>
+                <option value="nerdy">Nerdy</option>
+                <option value="sarcastic">Sarcastic</option>
+                <option value="hype">Hype</option>
+                <option value="quiet">Quiet</option>
+              </select>
+            </div>
+            <div class="form-group" style="display:flex;align-items:flex-end">
+              <button class="btn-primary" style="width:100%" onclick="addBot()">Add Bot</button>
+            </div>
           </div>
         </div>
 

@@ -3,19 +3,20 @@ const OpenAI = require('openai');
 class GeminiChat {
   constructor(apiKey) {
     this.apiKey = apiKey;
-    this.client = new OpenAI({
-      apiKey: apiKey || 'sk-placeholder',
+    this.client = apiKey ? new OpenAI({
+      apiKey,
       baseURL: 'https://openrouter.ai/api/v1',
-    });
+    }) : null;
     this.model = 'openrouter/free';
   }
 
   updateKey(key) {
     this.apiKey = key;
-    this.client = new OpenAI({
+    this.client = key ? new OpenAI({
       apiKey: key,
       baseURL: 'https://openrouter.ai/api/v1',
-    });
+    }) : null;
+    console.log('[Gemini] API key', key ? 'updated' : 'cleared');
   }
 
   async generateReply(botName, personality, topic, recentMessages = [], maxLength = 200) {
@@ -40,6 +41,11 @@ Chat history:
 ${history || 'No messages yet.'}
 
 What does ${botName} say next?`;
+
+    if (!this.client) {
+      console.warn('[Gemini] No API key set, using fallback');
+      return this.smartFallback(topic);
+    }
 
     try {
       const result = await this.client.chat.completions.create({
@@ -74,6 +80,11 @@ Style:
 - Examples: "honestly what do yall think about ${topic}", "i feel like nobody talks about ${topic} enough", "unpopular opinion but ${topic} is actually overrated"
 - No emojis, never mention being AI
 - Write ONLY the message, nothing else`;
+
+    if (!this.client) {
+      console.warn('[Gemini] No API key set, using fallback');
+      return this.topicFallback(topic);
+    }
 
     try {
       const result = await this.client.chat.completions.create({

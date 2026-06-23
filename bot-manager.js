@@ -63,8 +63,19 @@ class BotManager {
       await db.updateBot(botData.id, { is_active: 1 });
       this.starting?.delete(botData.id);
 
-      this.bots.set(botData.id, { client, data: botData });
+      this.bots.set(botData.id, { client, data: botData, channel: null });
       this.cooldowns.set(botData.id, 0);
+
+      try {
+        const ch = await client.channels.fetch(botData.channel_id);
+        if (ch) {
+          this.bots.get(botData.id).channel = ch;
+          console.log(`[BotManager] ${botData.name} cached channel: ${ch.name || ch.id}`);
+        }
+      } catch (e) {
+        console.error(`[BotManager] ${botData.name} couldn't fetch channel ${botData.channel_id}: ${e.message}`);
+      }
+
       this.scheduleActivity(botData.id);
     });
 
@@ -152,8 +163,19 @@ class BotManager {
       }
 
       try {
-        const channel = await client.channels.fetch(botData.channel_id);
-        if (!channel) return;
+        let channel = entry.channel;
+        if (!channel) {
+          channel = await client.channels.fetch(botData.channel_id);
+          if (channel) {
+            entry.channel = channel;
+          } else {
+            console.error(`[BotManager] ${botData.name} channel ${botData.channel_id} not found, skipping`);
+            if (this.bots.has(botId)) {
+              setTimeout(runChat, this.randomDelay(minCooldown, maxCooldown));
+            }
+            return;
+          }
+        }
 
         const typingDuration = this.randomDelay(
           parseInt(await db.getSetting('typing_min') || '3000'),
@@ -191,6 +213,9 @@ class BotManager {
         }
       } catch (err) {
         console.error(`[BotManager] Chat error for ${botData.name}: ${err.message}`);
+        if (err.message.includes('401') || err.message.includes('Unauthorized')) {
+          entry.channel = null;
+        }
       }
 
       if (this.bots.has(botId)) {
@@ -245,8 +270,12 @@ class BotManager {
     const entry = this.bots.get(botId);
     if (!entry) throw new Error('Bot not running');
 
-    const channel = await entry.client.channels.fetch(entry.data.channel_id);
-    if (!channel) throw new Error('Channel not found');
+    let channel = entry.channel;
+    if (!channel) {
+      channel = await entry.client.channels.fetch(entry.data.channel_id);
+      if (!channel) throw new Error('Channel not found');
+      entry.channel = channel;
+    }
 
     await channel.send(message);
   }

@@ -69,7 +69,7 @@ async function loadBots() {
       <div class="bot-info">
         <div class="bot-name">${esc(b.name)}</div>
         <div class="bot-tag">${b.is_running ? '🟢 ' + esc(b.tag || 'Running') : '🔴 Offline'} &middot; Token: ${esc(b.token)}</div>
-        <div class="bot-personality">${esc(b.personality)} &middot; Channel: ${esc(b.channel_id)}</div>
+        <div class="bot-personality">${esc(b.personality)} &middot; Guild: ${esc(b.server_id)} &middot; Channel: ${esc(b.channel_id)}</div>
       </div>
       <div class="bot-actions">
         ${b.is_running
