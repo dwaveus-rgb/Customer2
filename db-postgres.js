@@ -49,7 +49,8 @@ async function initDB() {
       admin_password: process.env.ADMIN_PASSWORD || 'admin',
       auto_reply: '1',
       chat_in_all_channels: '0',
-      theme: 'dark'
+      theme: 'dark',
+      custom_prompt: 'talk like gen z. use abbreviations like ngl, fr, no cap, lowkey, highkey, ion, deadass, bet, slay, bussin. lowercase everything. short 1-2 sentence messages. never use emojis. have opinions and be a little unhinged. react to what others say with energy. say things like "thats crazy", "no bc ur right", "ion think abt it like that", "ok but have u considered", "bestie ur so real for that".'
     };
 
     for (const [key, value] of Object.entries(defaults)) {

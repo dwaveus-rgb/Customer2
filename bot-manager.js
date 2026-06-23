@@ -210,13 +210,15 @@ class BotManager {
 
         const topic = await db.getSetting('topic') || 'general conversation';
         const maxLen = parseInt(await db.getSetting('max_length') || '200');
+        const customPrompt = await db.getSetting('custom_prompt') || '';
 
         const reply = await this.gemini.generateReply(
           botData.name,
           botData.personality,
           topic,
           this.recentMessages.slice(-10),
-          maxLen
+          maxLen,
+          customPrompt
         );
 
         if (reply && reply.length > 0) {

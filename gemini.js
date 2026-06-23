@@ -19,14 +19,18 @@ class GeminiChat {
     console.log('[Gemini] API key', key ? 'updated' : 'cleared');
   }
 
-  async generateReply(botName, personality, topic, recentMessages = [], maxLength = 200) {
+  async generateReply(botName, personality, topic, recentMessages = [], maxLength = 200, customPrompt = '') {
     const history = recentMessages.map(m => `${m.sender}: ${m.text}`).join('\n');
+
+    const styleSection = customPrompt
+      ? `\nTalking Style:\n${customPrompt}\n`
+      : '';
 
     const systemPrompt = `You are ${botName}, a real person in their 20s in a Discord group chat.
 
 Personality: ${personality}
 Topic everyone is discussing: ${topic}
-
+${styleSection}
 You MUST talk about this topic. Share opinions, ask questions, react to what others say about it.
 
 Style:
@@ -71,12 +75,16 @@ What does ${botName} say next?`;
     }
   }
 
-  async generateTopicStarter(botName, personality, topic) {
+  async generateTopicStarter(botName, personality, topic, customPrompt = '') {
+    const styleSection = customPrompt
+      ? `\nTalking Style:\n${customPrompt}\n`
+      : '';
+
     const systemPrompt = `You are ${botName}, a real person in a Discord group chat.
 
 Personality: ${personality}
 Topic: ${topic}
-
+${styleSection}
 Start a natural conversation about this topic. Share an opinion or ask a question.
 
 Style:
