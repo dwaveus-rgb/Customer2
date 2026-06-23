@@ -5,18 +5,50 @@ const db = require('./db');
 
 const DISCORD_API = 'https://discord.com/api/v10';
 
+function buildSuperProps() {
+  const props = {
+    os: 'windows',
+    browser: 'chrome',
+    device: '',
+    system_locale: 'en-US',
+    browser_version: '131.0.0.0',
+    os_version: '10',
+    referrer: '',
+    referring_domain: '',
+    referrer_current: '',
+    referring_domain_current: '',
+    release_channel: 'stable',
+    client_build_number: 361469,
+    client_event_source: null
+  };
+  return Buffer.from(JSON.stringify(props)).toString('base64');
+}
+
 async function rawFetch(token, method, path, body) {
   const headers = {
     'Authorization': token,
     'Content-Type': 'application/json',
-    'User-Agent': 'DiscordBot (https://github.com/discord.js, 14.18.0) Node.js/24'
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    'X-Super-Properties': buildSuperProps(),
+    'X-Discord-Locale': 'en-US',
+    'X-Discord-Timezone': 'UTC',
+    'X-Requested-With': 'XMLHttpRequest',
+    'Sec-Ch-Ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+    'Sec-Ch-Ua-Mobile': '?0',
+    'Sec-Ch-Ua-Platform': '"Windows"',
+    'Sec-Fetch-Dest': 'empty',
+    'Sec-Fetch-Mode': 'cors',
+    'Sec-Fetch-Site': 'same-origin',
+    'Referer': 'https://discord.com/channels/@me',
+    'Origin': 'https://discord.com'
   };
   const opts = { method, headers };
   if (body) opts.body = JSON.stringify(body);
   const res = await fetch(`${DISCORD_API}${path}`, opts);
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new Error(`${res.status}: ${res.statusText} - ${text}`);
+    console.error(`[rawFetch] ${method} ${path} => ${res.status}: ${text.slice(0, 200)}`);
+    throw new Error(`${res.status}: ${res.statusText} - ${text.slice(0, 200)}`);
   }
   if (res.status === 204) return null;
   return res.json();

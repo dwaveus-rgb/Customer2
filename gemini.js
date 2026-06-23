@@ -57,6 +57,11 @@ What does ${botName} say next?`;
         temperature: 0.9,
       });
 
+      if (!result || !result.choices || !result.choices.length) {
+        console.warn('[Gemini] Empty response from API, using fallback');
+        return this.smartFallback(topic);
+      }
+
       let response = result.choices[0]?.message?.content?.trim() || '';
       response = this.cleanResponse(response, botName, 120);
       return response;
