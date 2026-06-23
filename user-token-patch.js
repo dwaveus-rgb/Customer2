@@ -31,4 +31,34 @@ Client.prototype.emit = function (event, ...args) {
   return origEmit.call(this, event, ...args);
 };
 
+const { WebSocketManager } = require('@discordjs/ws');
+const origFetchGWI = WebSocketManager.prototype.fetchGatewayInformation;
+WebSocketManager.prototype.fetchGatewayInformation = async function (force) {
+  if (this.gatewayInformation) {
+    if (this.gatewayInformation.expiresAt <= Date.now()) {
+      this.gatewayInformation = null;
+    } else if (!force) {
+      return this.gatewayInformation.data;
+    }
+  }
+  try {
+    const data = await this.options.rest.get('/gateway');
+    const result = {
+      url: data.url,
+      shards: 1,
+      session_start_limit: {
+        total: 1000,
+        remaining: 999,
+        reset_after: 0,
+        max_concurrency: 1
+      }
+    };
+    this.gatewayInformation = { data: result, expiresAt: Date.now() + 60000 };
+    return result;
+  } catch {
+    const data = await origFetchGWI.call(this, force);
+    return data;
+  }
+};
+
 module.exports = true;
