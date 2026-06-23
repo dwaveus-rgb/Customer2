@@ -28,10 +28,12 @@ class BotManager {
   }
 
   async startBot(botData) {
-    if (this.bots.has(botData.id)) {
-      console.log(`[BotManager] Bot "${botData.name}" already running`);
+    if (this.bots.has(botData.id) || this.starting?.has(botData.id)) {
+      console.log(`[BotManager] Bot "${botData.name}" already running or starting`);
       return;
     }
+    if (!this.starting) this.starting = new Set();
+    this.starting.add(botData.id);
 
     const client = new Client({
       intents: [
@@ -45,6 +47,7 @@ class BotManager {
     client.once(Events.ClientReady, async () => {
       console.log(`[BotManager] ${client.user.tag} is online!`);
       await db.updateBot(botData.id, { is_active: 1 });
+      this.starting?.delete(botData.id);
 
       this.bots.set(botData.id, { client, data: botData });
       this.cooldowns.set(botData.id, 0);
@@ -54,6 +57,7 @@ class BotManager {
     setTimeout(async () => {
       if (!this.bots.has(botData.id)) {
         console.error(`[BotManager] Bot "${botData.name}" timed out waiting for READY event`);
+        this.starting?.delete(botData.id);
         try { client.destroy(); } catch (e) {}
         await db.updateBot(botData.id, { is_active: 0 });
       }
@@ -86,6 +90,7 @@ class BotManager {
     } catch (err) {
       console.error(`[BotManager] Failed to start "${botData.name}": ${err.message}`);
       console.error(`[BotManager] Stack: ${err.stack}`);
+      this.starting?.delete(botData.id);
       await db.updateBot(botData.id, { is_active: 0 });
     }
   }

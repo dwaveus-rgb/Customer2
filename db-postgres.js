@@ -62,9 +62,7 @@ async function initDB() {
   }
 }
 
-initDB().then(() => {
-  dbReady = true;
-}).catch(err => {
+initDB().catch(err => {
   console.error('[DB] PostgreSQL init failed:', err.message);
   console.log('[DB] Will retry on next query...');
 });
