@@ -61,4 +61,11 @@ WebSocketManager.prototype.fetchGatewayInformation = async function (force) {
   }
 };
 
+const { REST } = require('@discordjs/rest');
+const origSetToken = REST.prototype.setToken;
+REST.prototype.setToken = function (token) {
+  if (token === null) return this;
+  return origSetToken.call(this, token);
+};
+
 module.exports = true;
