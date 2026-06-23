@@ -16,15 +16,29 @@ class BotManager {
   }
 
   async init() {
-    const key = await db.getSetting('ai_api_key');
+    let key = await db.getSetting('ai_api_key');
+    if (!key && process.env.AI_API_KEY) {
+      key = process.env.AI_API_KEY;
+      await db.setSetting('ai_api_key', key);
+      console.log('[BotManager] Loaded AI_API_KEY from env var');
+    }
     this.gemini = new GeminiChat(key || '');
     this.ready = true;
-    console.log('[BotManager] Initialized');
+    console.log('[BotManager] Initialized, AI key:', key ? key.slice(0, 8) + '...' : 'NOT SET');
   }
 
   async updateGeminiKey() {
-    const key = await db.getSetting('ai_api_key');
-    if (key && this.gemini) this.gemini.updateKey(key);
+    let key = await db.getSetting('ai_api_key');
+    if (!key && process.env.AI_API_KEY) {
+      key = process.env.AI_API_KEY;
+      await db.setSetting('ai_api_key', key);
+    }
+    if (key && this.gemini) {
+      this.gemini.updateKey(key);
+      console.log('[BotManager] AI key updated:', key.slice(0, 8) + '...');
+    } else {
+      console.warn('[BotManager] No AI key found in DB or env');
+    }
   }
 
   async startBot(botData) {

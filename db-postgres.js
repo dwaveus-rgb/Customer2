@@ -73,7 +73,7 @@ module.exports = {
   getSetting: async (key) => {
     try {
       const res = await pool.query('SELECT value FROM settings WHERE key = $1', [key]);
-      return res.rows[0]?.value || null;
+      return res.rows[0]?.value ?? null;
     } catch (err) {
       console.error('[DB] getSetting error:', err.message);
       return null;
