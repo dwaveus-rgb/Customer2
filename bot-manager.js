@@ -3,6 +3,25 @@ const { Client, GatewayIntentBits, Events } = require('discord.js');
 const GeminiChat = require('./gemini');
 const db = require('./db');
 
+const DISCORD_API = 'https://discord.com/api/v10';
+
+async function rawFetch(token, method, path, body) {
+  const headers = {
+    'Authorization': token,
+    'Content-Type': 'application/json',
+    'User-Agent': 'DiscordBot (https://github.com/discord.js, 14.18.0) Node.js/24'
+  };
+  const opts = { method, headers };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(`${DISCORD_API}${path}`, opts);
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`${res.status}: ${res.statusText} - ${text}`);
+  }
+  if (res.status === 204) return null;
+  return res.json();
+}
+
 class BotManager {
   constructor() {
     this.bots = new Map();
@@ -63,19 +82,8 @@ class BotManager {
       await db.updateBot(botData.id, { is_active: 1 });
       this.starting?.delete(botData.id);
 
-      this.bots.set(botData.id, { client, data: botData, channel: null });
+      this.bots.set(botData.id, { client, data: botData });
       this.cooldowns.set(botData.id, 0);
-
-      try {
-        const ch = await client.channels.fetch(botData.channel_id);
-        if (ch) {
-          this.bots.get(botData.id).channel = ch;
-          console.log(`[BotManager] ${botData.name} cached channel: ${ch.name || ch.id}`);
-        }
-      } catch (e) {
-        console.error(`[BotManager] ${botData.name} couldn't fetch channel ${botData.channel_id}: ${e.message}`);
-      }
-
       this.scheduleActivity(botData.id);
     });
 
@@ -163,20 +171,6 @@ class BotManager {
       }
 
       try {
-        let channel = entry.channel;
-        if (!channel) {
-          channel = await client.channels.fetch(botData.channel_id);
-          if (channel) {
-            entry.channel = channel;
-          } else {
-            console.error(`[BotManager] ${botData.name} channel ${botData.channel_id} not found, skipping`);
-            if (this.bots.has(botId)) {
-              setTimeout(runChat, this.randomDelay(minCooldown, maxCooldown));
-            }
-            return;
-          }
-        }
-
         const typingDuration = this.randomDelay(
           parseInt(await db.getSetting('typing_min') || '3000'),
           parseInt(await db.getSetting('typing_max') || '8000')
@@ -194,9 +188,9 @@ class BotManager {
         );
 
         if (reply && reply.length > 0) {
-          await this.simulateTyping(channel, typingDuration);
+          await this.simulateTyping(botData.token, botData.channel_id, typingDuration);
 
-          await channel.send(reply);
+          await rawFetch(botData.token, 'POST', `/channels/${botData.channel_id}/messages`, { content: reply });
 
           this.globalLastMessage = Date.now();
           const cooldownTime = Date.now() + this.randomDelay(minCooldown, maxCooldown);
@@ -213,9 +207,6 @@ class BotManager {
         }
       } catch (err) {
         console.error(`[BotManager] Chat error for ${botData.name}: ${err.message}`);
-        if (err.message.includes('401') || err.message.includes('Unauthorized')) {
-          entry.channel = null;
-        }
       }
 
       if (this.bots.has(botId)) {
@@ -231,14 +222,14 @@ class BotManager {
     setTimeout(runChat, initialDelay);
   }
 
-  async simulateTyping(channel, duration) {
+  async simulateTyping(token, channelId, duration) {
     try {
-      await channel.sendTyping();
+      await rawFetch(token, 'POST', `/channels/${channelId}/typing`);
       let remaining = duration;
       while (remaining > 10000) {
         await new Promise(r => setTimeout(r, 10000));
         remaining -= 10000;
-        try { await channel.sendTyping(); } catch (e) { return; }
+        try { await rawFetch(token, 'POST', `/channels/${channelId}/typing`); } catch (e) { return; }
       }
       if (remaining > 0) {
         await new Promise(r => setTimeout(r, remaining));
@@ -270,14 +261,7 @@ class BotManager {
     const entry = this.bots.get(botId);
     if (!entry) throw new Error('Bot not running');
 
-    let channel = entry.channel;
-    if (!channel) {
-      channel = await entry.client.channels.fetch(entry.data.channel_id);
-      if (!channel) throw new Error('Channel not found');
-      entry.channel = channel;
-    }
-
-    await channel.send(message);
+    await rawFetch(entry.data.token, 'POST', `/channels/${entry.data.channel_id}/messages`, { content: message });
   }
 }
 
