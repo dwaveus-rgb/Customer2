@@ -173,7 +173,7 @@ async function updateTopic() {
 
 async function saveSettings() {
   const fields = [
-    'ai_api_key', 'topic', 'min_delay', 'max_delay',
+    'ai_api_key', 'min_delay', 'max_delay',
     'typing_min', 'typing_max', 'max_length', 'topic_change_interval',
     'server_id', 'channel_id', 'custom_prompt'
   ];

@@ -67,7 +67,7 @@ What does ${botName} say next?`;
       }
 
       let response = result.choices[0]?.message?.content?.trim() || '';
-      response = this.cleanResponse(response, botName, 120);
+      response = this.cleanResponse(response, botName, maxLength);
       return response;
     } catch (err) {
       console.error('[OpenRouter Error]', err.message);
