@@ -1,4 +1,4 @@
-# Discord Gemini Chat
+# Chatting Bots Admin
 
 Multi-bot Discord selfbot system powered by OpenRouter AI. Run multiple user accounts that auto-chat in a Discord channel with humanized responses.
 
