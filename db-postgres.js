@@ -10,69 +10,80 @@ try {
 const pool = new Pool({
   connectionString: dbUrl,
   ssl: { rejectUnauthorized: false },
-  connectionTimeoutMillis: 5000
+  connectionTimeoutMillis: 10000
 });
 
-let dbReady = false;
+let initPromise = null;
 
-async function initDB() {
-  const client = await pool.connect();
-  try {
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS settings (
-        key VARCHAR(255) PRIMARY KEY,
-        value TEXT NOT NULL DEFAULT ''
-      );
-    `);
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS bots (
-        id SERIAL PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
-        token TEXT NOT NULL UNIQUE,
-        channel_id VARCHAR(255) NOT NULL,
-        server_id VARCHAR(255) NOT NULL,
-        personality VARCHAR(255) DEFAULT 'friendly',
-        is_active INTEGER DEFAULT 0,
-        created_at TIMESTAMP DEFAULT NOW()
-      );
-    `);
+async function ensureTables() {
+  if (initPromise) return initPromise;
+  initPromise = (async () => {
+    let attempts = 0;
+    while (attempts < 5) {
+      try {
+        const client = await pool.connect();
+        try {
+          await client.query(`
+            CREATE TABLE IF NOT EXISTS settings (
+              key VARCHAR(255) PRIMARY KEY,
+              value TEXT NOT NULL DEFAULT ''
+            );
+          `);
+          await client.query(`
+            CREATE TABLE IF NOT EXISTS bots (
+              id SERIAL PRIMARY KEY,
+              name VARCHAR(255) NOT NULL,
+              token TEXT NOT NULL UNIQUE,
+              channel_id VARCHAR(255) NOT NULL DEFAULT '',
+              server_id VARCHAR(255) NOT NULL DEFAULT '',
+              personality VARCHAR(255) DEFAULT 'friendly',
+              is_active INTEGER DEFAULT 0,
+              created_at TIMESTAMP DEFAULT NOW()
+            );
+          `);
 
-    const defaults = {
-      topic: 'what is the best discord server and why',
-      ai_api_key: process.env.AI_API_KEY || '',
-      min_delay: '8000',
-      max_delay: '25000',
-      typing_min: '3000',
-      typing_max: '8000',
-      max_length: '200',
-      topic_change_interval: '30',
-      admin_password: process.env.ADMIN_PASSWORD || 'admin',
-      auto_reply: '1',
-      chat_in_all_channels: '0',
-      theme: 'dark',
-      custom_prompt: 'talk like gen z. use abbreviations like ngl, fr, no cap, lowkey, highkey, ion, deadass, bet, slay, bussin. lowercase everything. short 1-2 sentence messages. never use emojis. have opinions and be a little unhinged. react to what others say with energy. say things like "thats crazy", "no bc ur right", "ion think abt it like that", "ok but have u considered", "bestie ur so real for that".'
-    };
+          const defaults = {
+            topic: 'what is the best discord server and why',
+            ai_api_key: process.env.AI_API_KEY || '',
+            min_delay: '8000',
+            max_delay: '25000',
+            typing_min: '3000',
+            typing_max: '8000',
+            max_length: '200',
+            topic_change_interval: '30',
+            auto_reply: '1',
+            chat_in_all_channels: '0',
+            theme: 'dark',
+            custom_prompt: 'talk like gen z. use abbreviations like ngl, fr, no cap, lowkey, highkey, ion, deadass, bet, slay, bussin. lowercase everything. short 1-2 sentence messages. never use emojis. have opinions and be a little unhinged. react to what others say with energy. say things like "thats crazy", "no bc ur right", "ion think abt it like that", "ok but have u considered", "bestie ur so real for that".'
+          };
 
-    for (const [key, value] of Object.entries(defaults)) {
-      await client.query('INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING', [key, value]);
+          for (const [key, value] of Object.entries(defaults)) {
+            await client.query('INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING', [key, value]);
+          }
+          console.log('[DB] PostgreSQL tables ready');
+        } finally {
+          client.release();
+        }
+        return;
+      } catch (err) {
+        attempts++;
+        console.error(`[DB] Init attempt ${attempts} failed: ${err.message}`);
+        if (attempts < 5) {
+          await new Promise(r => setTimeout(r, 3000));
+          initPromise = null;
+        }
+      }
     }
-    dbReady = true;
-    console.log('[DB] PostgreSQL initialized');
-  } finally {
-    client.release();
-  }
+  })();
+  return initPromise;
 }
-
-initDB().catch(err => {
-  console.error('[DB] PostgreSQL init failed:', err.message);
-  console.log('[DB] Will retry on next query...');
-});
 
 module.exports = {
   pool,
-  isReady: () => dbReady,
+  ensureTables,
   getSetting: async (key) => {
     try {
+      await ensureTables();
       const res = await pool.query('SELECT value FROM settings WHERE key = $1', [key]);
       return res.rows[0]?.value ?? null;
     } catch (err) {
@@ -82,6 +93,7 @@ module.exports = {
   },
   setSetting: async (key, value) => {
     try {
+      await ensureTables();
       await pool.query('INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2', [key, value]);
     } catch (err) {
       console.error('[DB] setSetting error:', err.message);
@@ -89,6 +101,7 @@ module.exports = {
   },
   getAllSettings: async () => {
     try {
+      await ensureTables();
       const res = await pool.query('SELECT key, value FROM settings');
       const s = {};
       for (const r of res.rows) s[r.key] = r.value;
@@ -100,6 +113,7 @@ module.exports = {
   },
   addBot: async (name, token, channelId, serverId, personality) => {
     try {
+      await ensureTables();
       const res = await pool.query('INSERT INTO bots (name, token, channel_id, server_id, personality) VALUES ($1, $2, $3, $4, $5) RETURNING id', [name, token, channelId, serverId, personality || 'friendly']);
       return { lastInsertRowid: res.rows[0].id };
     } catch (err) {
@@ -109,6 +123,7 @@ module.exports = {
   },
   removeBot: async (id) => {
     try {
+      await ensureTables();
       await pool.query('DELETE FROM bots WHERE id = $1', [id]);
     } catch (err) {
       console.error('[DB] removeBot error:', err.message);
@@ -116,6 +131,7 @@ module.exports = {
   },
   getBots: async () => {
     try {
+      await ensureTables();
       const res = await pool.query('SELECT * FROM bots ORDER BY id');
       return res.rows;
     } catch (err) {
@@ -125,6 +141,7 @@ module.exports = {
   },
   getBot: async (id) => {
     try {
+      await ensureTables();
       const res = await pool.query('SELECT * FROM bots WHERE id = $1', [id]);
       return res.rows[0] || null;
     } catch (err) {
@@ -134,6 +151,7 @@ module.exports = {
   },
   updateBot: async (id, fields) => {
     try {
+      await ensureTables();
       const keys = Object.keys(fields);
       const values = Object.values(fields);
       const set = keys.map((k, i) => `${k} = $${i + 1}`).join(', ');
