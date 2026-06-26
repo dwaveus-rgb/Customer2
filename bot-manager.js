@@ -373,20 +373,21 @@ class BotManager {
       const maxLen = parseInt(await db.getSetting('max_length') || '200');
 
       try {
-        const starter = await this.gemini.generateTopicStarter(
-          entry.data.name, entry.data.personality, topic, customPrompt
+        const redirect = await this.gemini.generateRedirect(
+          entry.data.name, entry.data.personality, topic, customPrompt,
+          this.recentMessages.slice(-10), maxLen
         );
-        if (starter && starter.length > 0) {
+        if (redirect && redirect.length > 0) {
           const typingDuration = this.randomDelay(
             parseInt(await db.getSetting('typing_min') || '3000'),
             parseInt(await db.getSetting('typing_max') || '8000')
           );
           await this.simulateTyping(entry.data.token, entry.data.channel_id, typingDuration);
-          await rawFetch(entry.data.token, 'POST', `/channels/${entry.data.channel_id}/messages`, { content: starter });
+          await rawFetch(entry.data.token, 'POST', `/channels/${entry.data.channel_id}/messages`, { content: redirect });
           this.globalLastMessage = Date.now();
-          this.recentMessages.push({ sender: entry.data.name, text: starter, botId: entry.data.id });
+          this.recentMessages.push({ sender: entry.data.name, text: redirect, botId: entry.data.id });
           if (this.recentMessages.length > this.maxRecent) this.recentMessages.shift();
-          console.log(`[BotManager] ${entry.data.name} (idle kick): ${starter}`);
+          console.log(`[BotManager] ${entry.data.name} (topic redirect): ${redirect}`);
         }
       } catch (err) {
         console.error(`[BotManager] Idle kick error for ${entry.data.name}: ${err.message}`);
