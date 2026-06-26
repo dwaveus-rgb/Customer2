@@ -70,7 +70,6 @@ class BotManager {
     this.cooldowns = new Map();
     this.globalLastMessage = 0;
     this.ready = false;
-    this.processingMessage = false;
     this.offTopicStart = null;
     this.lastRedirectTime = 0;
     this.repliedMessages = new Set();
@@ -196,8 +195,9 @@ class BotManager {
   }
 
   async handleMemberMessage(message, channelId) {
-    if (this.processingMessage) return;
-    this.processingMessage = true;
+    // Per-message lock: skip if this exact message is already being processed
+    if (this.repliedMessages.has(message.id)) return;
+    this.repliedMessages.add(message.id);
 
     try {
       const topic = await db.getSetting('topic') || 'general conversation';
@@ -211,14 +211,56 @@ class BotManager {
       const offTopicTolerance = parseInt(await db.getSetting('off_topic_tolerance') || '5') * 60000;
       const redirectCooldown = parseInt(await db.getSetting('redirect_cooldown') || '120') * 1000;
 
-      // Random chance to react to the message
-      this.scheduleReaction(message, channelId, reactionChance);
+      // Fire reaction in background (don't await)
+      this.scheduleReaction(message, channelId, reactionChance).catch(() => {});
 
-      // Pick first responder
       const botEntries = [...this.bots.entries()];
       if (botEntries.length === 0) return;
 
-      const firstBotIdx = 0;
+      // Check if conversation has drifted off-topic
+      const isOnTopic = await this.gemini.checkOnTopic(message.content, topic);
+      if (!isOnTopic) {
+        if (!this.offTopicStart) this.offTopicStart = Date.now();
+      } else {
+        this.offTopicStart = null;
+      }
+
+      // If off-topic too long, redirect instead of replying normally
+      const shouldRedirect = this.offTopicStart && (Date.now() - this.offTopicStart > offTopicTolerance);
+      const sinceLastRedirect = Date.now() - this.lastRedirectTime;
+      if (shouldRedirect && sinceLastRedirect > redirectCooldown) {
+        const redirectBotEntry = botEntries[Math.floor(Math.random() * botEntries.length)];
+        const redirectBot = redirectBotEntry[1].data;
+
+        if (this.bots.has(redirectBot.id)) {
+          const redirectDelay = this.randomDelay(replyDelayMin, replyDelayMax);
+          await this.delay(redirectDelay);
+
+          const redirectMsg = await this.gemini.generateRedirect(
+            redirectBot.name, redirectBot.personality, topic, customPrompt,
+            this.recentMessages.slice(-10), maxLen
+          );
+
+          if (redirectMsg && redirectMsg.length > 0) {
+            const typingDuration = this.randomDelay(
+              parseInt(await db.getSetting('typing_min') || '3000'),
+              parseInt(await db.getSetting('typing_max') || '8000')
+            );
+            await this.simulateTyping(redirectBot.token, channelId, typingDuration);
+            await rawFetch(redirectBot.token, 'POST', `/channels/${channelId}/messages`, { content: redirectMsg });
+            this.globalLastMessage = Date.now();
+            this.recentMessages.push({ sender: redirectBot.name, text: redirectMsg, botId: redirectBot.id });
+            if (this.recentMessages.length > this.maxRecent) this.recentMessages.shift();
+            console.log(`[BotManager] ${redirectBot.name} (redirect): ${redirectMsg}`);
+            this.lastRedirectTime = Date.now();
+            this.offTopicStart = null;
+          }
+        }
+        return;
+      }
+
+      // Pick first responder — pick a random bot, not always the first
+      const firstBotIdx = Math.floor(Math.random() * botEntries.length);
       const firstBotEntry = botEntries[firstBotIdx];
       const firstBotData = firstBotEntry[1].data;
 
@@ -247,11 +289,11 @@ class BotManager {
         console.log(`[BotManager] ${firstBotData.name}: ${firstReply}`);
       }
 
-      // Follow-up bot(s) respond to first bot's reply
-      if (botEntries.length > 1 && firstReply) {
-        const followUpIdx = 1;
-        if (followUpIdx < botEntries.length) {
-          const followUpEntry = botEntries[followUpIdx];
+      // Follow-up bot responds to the MEMBER's message (not just the first bot's reply)
+      if (botEntries.length > 1) {
+        const availableFollowUps = botEntries.filter(([id]) => id !== firstBotData.id);
+        if (availableFollowUps.length > 0) {
+          const followUpEntry = availableFollowUps[Math.floor(Math.random() * availableFollowUps.length)];
           const followUpData = followUpEntry[1].data;
 
           const followDelay = this.randomDelay(followUpDelayMin, followUpDelayMax);
@@ -261,7 +303,7 @@ class BotManager {
 
           const followReply = await this.gemini.generateFollowUp(
             followUpData.name, followUpData.personality, topic, customPrompt,
-            firstBotData.name, firstReply,
+            message.author.username, message.content,
             this.recentMessages.slice(-10), maxLen
           );
 
@@ -279,53 +321,8 @@ class BotManager {
           }
         }
       }
-
-      // Topic tracking: check if conversation is off-topic
-      const recentTexts = this.recentMessages.slice(-5);
-      const isOnTopic = await this.gemini.checkOnTopic(message.content, topic);
-      if (!isOnTopic) {
-        if (!this.offTopicStart) this.offTopicStart = Date.now();
-      } else {
-        this.offTopicStart = null;
-      }
-
-      // Redirect if off-topic too long
-      if (this.offTopicStart && (Date.now() - this.offTopicStart > offTopicTolerance)) {
-        const sinceLastRedirect = Date.now() - this.lastRedirectTime;
-        if (sinceLastRedirect > redirectCooldown) {
-          const redirectBotEntry = botEntries[Math.floor(Math.random() * botEntries.length)];
-          const redirectBot = redirectBotEntry[1].data;
-
-          const redirectDelay = this.randomDelay(replyDelayMin, replyDelayMax);
-          await this.delay(redirectDelay);
-
-          if (this.bots.has(redirectBot.id)) {
-            const redirectMsg = await this.gemini.generateRedirect(
-              redirectBot.name, redirectBot.personality, topic, customPrompt,
-              this.recentMessages.slice(-10), maxLen
-            );
-
-            if (redirectMsg && redirectMsg.length > 0) {
-              const typingDuration = this.randomDelay(
-                parseInt(await db.getSetting('typing_min') || '3000'),
-                parseInt(await db.getSetting('typing_max') || '8000')
-              );
-              await this.simulateTyping(redirectBot.token, channelId, typingDuration);
-              await rawFetch(redirectBot.token, 'POST', `/channels/${channelId}/messages`, { content: redirectMsg });
-              this.globalLastMessage = Date.now();
-              this.recentMessages.push({ sender: redirectBot.name, text: redirectMsg, botId: redirectBot.id });
-              if (this.recentMessages.length > this.maxRecent) this.recentMessages.shift();
-              console.log(`[BotManager] ${redirectBot.name} (redirect): ${redirectMsg}`);
-              this.lastRedirectTime = Date.now();
-              this.offTopicStart = null;
-            }
-          }
-        }
-      }
     } catch (err) {
       console.error(`[BotManager] Message handling error: ${err.message}`);
-    } finally {
-      this.processingMessage = false;
     }
   }
 
