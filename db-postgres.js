@@ -54,7 +54,15 @@ async function ensureTables() {
             auto_reply: '1',
             chat_in_all_channels: '0',
             theme: 'dark',
-            custom_prompt: 'talk like gen z. use abbreviations like ngl, fr, no cap, lowkey, highkey, ion, deadass, bet, slay, bussin. lowercase everything. short 1-2 sentence messages. never use emojis. have opinions and be a little unhinged. react to what others say with energy. say things like "thats crazy", "no bc ur right", "ion think abt it like that", "ok but have u considered", "bestie ur so real for that".'
+            custom_prompt: 'talk like gen z. use abbreviations like ngl, fr, no cap, lowkey, highkey, ion, deadass, bet, slay, bussin. lowercase everything. short 1-2 sentence messages. never use emojis. have opinions and be a little unhinged. react to what others say with energy. say things like "thats crazy", "no bc ur right", "ion think abt it like that", "ok but have u considered", "bestie ur so real for that".',
+            reaction_chance: '20',
+            reply_delay_min: '2000',
+            reply_delay_max: '8000',
+            follow_up_delay_min: '5000',
+            follow_up_delay_max: '15000',
+            off_topic_tolerance: '5',
+            redirect_cooldown: '120',
+            idle_kick_minutes: '30'
           };
 
           for (const [key, value] of Object.entries(defaults)) {

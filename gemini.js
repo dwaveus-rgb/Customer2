@@ -19,101 +19,129 @@ class GeminiChat {
     console.log('[Gemini] API key', key ? 'updated' : 'cleared');
   }
 
-  async generateReply(botName, personality, topic, recentMessages = [], maxLength = 200, customPrompt = '') {
+  async chat(systemPrompt, maxTokens = 50) {
+    if (!this.client) return null;
+    try {
+      const result = await this.client.chat.completions.create({
+        model: this.model,
+        messages: [{ role: 'system', content: systemPrompt }],
+        max_tokens: maxTokens,
+        temperature: 0.9,
+      });
+      if (!result || !result.choices || !result.choices.length) return null;
+      return result.choices[0]?.message?.content?.trim() || null;
+    } catch (err) {
+      console.error('[OpenRouter Error]', err.message);
+      return null;
+    }
+  }
+
+  async generateReplyToMessage(botName, personality, topic, customPrompt, authorName, messageContent, recentMessages = [], maxLength = 200) {
     const history = recentMessages.map(m => `${m.sender}: ${m.text}`).join('\n');
+    const styleSection = customPrompt ? `\nTalking Style:\n${customPrompt}\n` : '';
 
-    const styleSection = customPrompt
-      ? `\nTalking Style:\n${customPrompt}\n`
-      : '';
-
-    const systemPrompt = `You are ${botName}, a real person in their 20s in a Discord group chat.
+    const prompt = `You are ${botName}, a real person in their 20s in a Discord group chat.
 
 Personality: ${personality}
 Topic everyone is discussing: ${topic}
 ${styleSection}
-You MUST talk about this topic. Share opinions, ask questions, react to what others say about it.
+${authorName} just said: "${messageContent}"
+
+Reply directly to what they said. React to it, add your own take, ask a follow-up. Be natural.
 
 Style:
 - 1-2 short sentences, like texting a friend
-- Casual lowercase, lazy grammar is fine
+- Casual lowercase, lazy grammar
 - Give real opinions, not just "lol" or "fr"
-- React to what others said, then add your own take
-- Examples: "honestly i think discord is way better than slack for communities", "wait do yall actually use servers tho or just dms", "the best part is definitely the voice channels ngl"
-- No emojis, never mention being AI
+- Reference what they actually said
+- No emojis in text, never mention being AI
 
-Chat history:
+Recent chat:
 ${history || 'No messages yet.'}
 
-What does ${botName} say next?`;
+What does ${botName} say?`;
 
-    if (!this.client) {
-      console.warn('[Gemini] No API key set, using fallback');
-      return this.smartFallback(topic);
-    }
-
-    try {
-      const result = await this.client.chat.completions.create({
-        model: this.model,
-        messages: [
-          { role: 'system', content: systemPrompt }
-        ],
-        max_tokens: 50,
-        temperature: 0.9,
-      });
-
-      if (!result || !result.choices || !result.choices.length) {
-        console.warn('[Gemini] Empty response from API, using fallback');
-        return this.smartFallback(topic);
-      }
-
-      let response = result.choices[0]?.message?.content?.trim() || '';
-      response = this.cleanResponse(response, botName, maxLength);
-      return response;
-    } catch (err) {
-      console.error('[OpenRouter Error]', err.message);
-      return this.smartFallback(topic);
-    }
+    const response = await this.chat(prompt, 50);
+    if (response) return this.cleanResponse(response, botName, maxLength);
+    return this.smartFallback(topic);
   }
 
-  async generateTopicStarter(botName, personality, topic, customPrompt = '') {
-    const styleSection = customPrompt
-      ? `\nTalking Style:\n${customPrompt}\n`
-      : '';
+  async generateFollowUp(botName, personality, topic, customPrompt, originalAuthor, originalMessage, recentMessages = [], maxLength = 200) {
+    const history = recentMessages.map(m => `${m.sender}: ${m.text}`).join('\n');
+    const styleSection = customPrompt ? `\nTalking Style:\n${customPrompt}\n` : '';
 
-    const systemPrompt = `You are ${botName}, a real person in a Discord group chat.
+    const prompt = `You are ${botName}, a real person in their 20s in a Discord group chat.
 
 Personality: ${personality}
-Topic: ${topic}
+Topic everyone is discussing: ${topic}
 ${styleSection}
-Start a natural conversation about this topic. Share an opinion or ask a question.
+${originalAuthor} just said: "${originalMessage}"
+
+Continue the conversation. Respond to what they said, add your perspective, or build on it.
 
 Style:
-- 1 sentence, casual and conversational
-- Lowercase, lazy grammar
-- Examples: "honestly what do yall think about ${topic}", "i feel like nobody talks about ${topic} enough", "unpopular opinion but ${topic} is actually overrated"
-- No emojis, never mention being AI
-- Write ONLY the message, nothing else`;
+- 1-2 short sentences
+- Casual lowercase, lazy grammar
+- React naturally, add your own take
+- No emojis in text, never mention being AI
 
-    if (!this.client) {
-      console.warn('[Gemini] No API key set, using fallback');
-      return this.topicFallback(topic);
-    }
+Recent chat:
+${history || 'No messages yet.'}
 
+What does ${botName} say?`;
+
+    const response = await this.chat(prompt, 50);
+    if (response) return this.cleanResponse(response, botName, maxLength);
+    return this.smartFallback(topic);
+  }
+
+  async generateRedirect(botName, personality, topic, customPrompt, recentMessages = [], maxLength = 200) {
+    const history = recentMessages.map(m => `${m.sender}: ${m.text}`).join('\n');
+    const styleSection = customPrompt ? `\nTalking Style:\n${customPrompt}\n` : '';
+
+    const prompt = `You are ${botName}, a real person in their 20s in a Discord group chat.
+
+Personality: ${personality}
+The main topic is: ${topic}
+${styleSection}
+The conversation has drifted away from the topic. Casually steer it back. Don't be abrupt — bridge naturally from what people are saying to the topic.
+
+Examples of smooth transitions:
+- "ok wait but that actually reminds me of ${topic}"
+- "true true but have yall thought about ${topic} tho"
+- "ngl that reminds me, what do yall think about ${topic}"
+- "lol anyway speaking of ${topic}"
+
+Style:
+- 1 sentence, casual and natural
+- Bridge from current conversation back to topic
+- No emojis in text, never mention being AI
+
+Recent chat:
+${history}
+
+What does ${botName} say?`;
+
+    const response = await this.chat(prompt, 40);
+    if (response) return this.cleanResponse(response, botName, maxLength);
+    return this.topicRedirectFallback(topic);
+  }
+
+  async checkOnTopic(messageContent, topic) {
+    if (!this.client) return true;
     try {
       const result = await this.client.chat.completions.create({
         model: this.model,
         messages: [
-          { role: 'system', content: systemPrompt }
+          { role: 'system', content: `Answer ONLY "yes" or "no". Is this message about or related to the topic "${topic}"? Message: "${messageContent}"` }
         ],
-        max_tokens: 40,
-        temperature: 0.9,
+        max_tokens: 3,
+        temperature: 0,
       });
-
-      let response = result.choices[0]?.message?.content?.trim() || '';
-      return this.cleanResponse(response, botName, 120);
-    } catch (err) {
-      console.error('[OpenRouter Error]', err.message);
-      return this.topicFallback(topic);
+      const answer = result.choices[0]?.message?.content?.trim().toLowerCase() || '';
+      return answer.startsWith('yes');
+    } catch {
+      return true;
     }
   }
 
@@ -153,6 +181,17 @@ Style:
       `yo thoughts on ${topic}?`
     ];
     return starters[Math.floor(Math.random() * starters.length)];
+  }
+
+  topicRedirectFallback(topic) {
+    const redirects = [
+      `ok wait but that actually reminds me of ${topic}`,
+      `true but have yall thought about ${topic} tho`,
+      `ngl that reminds me, what do yall think about ${topic}`,
+      `lol anyway speaking of ${topic}`,
+      `bruh we got sidetracked, what about ${topic}`
+    ];
+    return redirects[Math.floor(Math.random() * redirects.length)];
   }
 }
 
