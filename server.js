@@ -12,29 +12,41 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/api/settings', async (req, res) => {
-  const settings = await db.getAllSettings();
-  res.json(settings);
+  try {
+    const settings = await db.getAllSettings();
+    res.json(settings);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.put('/api/settings', async (req, res) => {
-  const settings = req.body;
-  for (const [key, value] of Object.entries(settings)) {
-    await db.setSetting(key, value);
+  try {
+    const settings = req.body;
+    for (const [key, value] of Object.entries(settings)) {
+      await db.setSetting(key, value);
+    }
+    if (settings.ai_api_key) await botManager.updateGeminiKey();
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-  if (settings.ai_api_key) await botManager.updateGeminiKey();
-  res.json({ success: true });
 });
 
 app.get('/api/bots', async (req, res) => {
-  const bots = await db.getBots();
-  const active = botManager.getActiveBots();
-  const activeIds = active.map(b => b.id);
-  res.json(bots.map(b => ({
-    ...b,
-    token: '••••••' + b.token.slice(-4),
-    is_running: activeIds.includes(b.id),
-    tag: active.find(a => a.id === b.id)?.tag
-  })));
+  try {
+    const bots = await db.getBots();
+    const active = botManager.getActiveBots();
+    const activeIds = active.map(b => b.id);
+    res.json(bots.map(b => ({
+      ...b,
+      token: '••••••' + b.token.slice(-4),
+      is_running: activeIds.includes(b.id),
+      tag: active.find(a => a.id === b.id)?.tag
+    })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.post('/api/bots', async (req, res) => {

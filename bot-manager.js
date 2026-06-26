@@ -143,18 +143,19 @@ class BotManager {
       if (message.channel.id !== botData.channel_id) return;
       if (message.author.bot) return;
 
+      // Only first bot pushes member messages (prevents duplicates)
+      const firstBotId = [...this.bots.keys()][0];
+      if (botData.id !== firstBotId) return;
+
       const msgData = {
         sender: message.author.username,
         text: message.content,
         botId: null,
-        id: message.id
+        id: message.id,
+        timestamp: Date.now()
       };
       this.recentMessages.push(msgData);
       if (this.recentMessages.length > this.maxRecent) this.recentMessages.shift();
-
-      // Only first bot in the bots map processes member messages (prevents duplicate handling)
-      const firstBotId = [...this.bots.keys()][0];
-      if (botData.id !== firstBotId) return;
 
       await this.handleMemberMessage(message, botData.channel_id);
     });
@@ -164,11 +165,16 @@ class BotManager {
       if (!message.author.bot) return;
       if (message.author.id === client.user.id) return;
 
+      // Only first bot pushes other-bot messages (prevents duplicates)
+      const firstBotId = [...this.bots.keys()][0];
+      if (botData.id !== firstBotId) return;
+
       const msgData = {
         sender: message.author.username,
         text: message.content,
         botId: 'other',
-        id: message.id
+        id: message.id,
+        timestamp: Date.now()
       };
       this.recentMessages.push(msgData);
       if (this.recentMessages.length > this.maxRecent) this.recentMessages.shift();
@@ -198,6 +204,13 @@ class BotManager {
     // Per-message lock: skip if this exact message is already being processed
     if (this.repliedMessages.has(message.id)) return;
     this.repliedMessages.add(message.id);
+    // Cap the set to prevent memory leak
+    if (this.repliedMessages.size > 500) {
+      const first = this.repliedMessages.values().next().value;
+      this.repliedMessages.delete(first);
+    }
+
+    if (!this.gemini) return;
 
     try {
       const topic = await db.getSetting('topic') || 'general conversation';
@@ -241,7 +254,7 @@ class BotManager {
             this.recentMessages.slice(-10), maxLen
           );
 
-          if (redirectMsg && redirectMsg.length > 0) {
+          if (redirectMsg && redirectMsg.length > 0 && !this.isDuplicateMessage(redirectMsg)) {
             const typingDuration = this.randomDelay(
               parseInt(await db.getSetting('typing_min') || '3000'),
               parseInt(await db.getSetting('typing_max') || '8000')
@@ -249,7 +262,7 @@ class BotManager {
             await this.simulateTyping(redirectBot.token, channelId, typingDuration);
             await rawFetch(redirectBot.token, 'POST', `/channels/${channelId}/messages`, { content: redirectMsg });
             this.globalLastMessage = Date.now();
-            this.recentMessages.push({ sender: redirectBot.name, text: redirectMsg, botId: redirectBot.id });
+            this.recentMessages.push({ sender: redirectBot.name, text: redirectMsg, botId: redirectBot.id, timestamp: Date.now() });
             if (this.recentMessages.length > this.maxRecent) this.recentMessages.shift();
             console.log(`[BotManager] ${redirectBot.name} (redirect): ${redirectMsg}`);
             this.lastRedirectTime = Date.now();
@@ -276,7 +289,7 @@ class BotManager {
         this.recentMessages.slice(-10), maxLen
       );
 
-      if (firstReply && firstReply.length > 0) {
+      if (firstReply && firstReply.length > 0 && !this.isDuplicateMessage(firstReply)) {
         const typingDuration = this.randomDelay(
           parseInt(await db.getSetting('typing_min') || '3000'),
           parseInt(await db.getSetting('typing_max') || '8000')
@@ -284,7 +297,7 @@ class BotManager {
         await this.simulateTyping(firstBotData.token, channelId, typingDuration);
         await rawFetch(firstBotData.token, 'POST', `/channels/${channelId}/messages`, { content: firstReply });
         this.globalLastMessage = Date.now();
-        this.recentMessages.push({ sender: firstBotData.name, text: firstReply, botId: firstBotData.id });
+        this.recentMessages.push({ sender: firstBotData.name, text: firstReply, botId: firstBotData.id, timestamp: Date.now() });
         if (this.recentMessages.length > this.maxRecent) this.recentMessages.shift();
         console.log(`[BotManager] ${firstBotData.name}: ${firstReply}`);
       }
@@ -307,7 +320,7 @@ class BotManager {
             this.recentMessages.slice(-10), maxLen
           );
 
-          if (followReply && followReply.length > 0) {
+          if (followReply && followReply.length > 0 && !this.isDuplicateMessage(followReply)) {
             const typingDuration = this.randomDelay(
               parseInt(await db.getSetting('typing_min') || '3000'),
               parseInt(await db.getSetting('typing_max') || '8000')
@@ -315,7 +328,7 @@ class BotManager {
             await this.simulateTyping(followUpData.token, channelId, typingDuration);
             await rawFetch(followUpData.token, 'POST', `/channels/${channelId}/messages`, { content: followReply });
             this.globalLastMessage = Date.now();
-            this.recentMessages.push({ sender: followUpData.name, text: followReply, botId: followUpData.id });
+            this.recentMessages.push({ sender: followUpData.name, text: followReply, botId: followUpData.id, timestamp: Date.now() });
             if (this.recentMessages.length > this.maxRecent) this.recentMessages.shift();
             console.log(`[BotManager] ${followUpData.name}: ${followReply}`);
           }
@@ -324,6 +337,19 @@ class BotManager {
     } catch (err) {
       console.error(`[BotManager] Message handling error: ${err.message}`);
     }
+  }
+
+  isDuplicateMessage(text) {
+    const recent = this.recentMessages.slice(-5);
+    const lower = text.toLowerCase().trim();
+    for (const msg of recent) {
+      const msgLower = msg.text.toLowerCase().trim();
+      if (msgLower === lower) return true;
+      // Check if one contains the other (for partial duplicates)
+      if (lower.length > 20 && msgLower.includes(lower)) return true;
+      if (msgLower.length > 20 && lower.includes(msgLower)) return true;
+    }
+    return false;
   }
 
   scheduleActivity(botId) {
@@ -343,9 +369,10 @@ class BotManager {
         return;
       }
 
-      const globalMinGap = 3000;
+      // Global gap: at least 8 seconds between ANY bot messages
+      const globalMinGap = 8000;
       if (now - this.globalLastMessage < globalMinGap) {
-        setTimeout(runChat, globalMinGap + 1000);
+        setTimeout(runChat, globalMinGap + 2000);
         return;
       }
 
@@ -364,18 +391,24 @@ class BotManager {
           this.recentMessages.slice(-10), maxLen, customPrompt
         );
 
-        if (reply && reply.length > 0) {
-          await this.simulateTyping(botData.token, botData.channel_id, typingDuration);
-          await rawFetch(botData.token, 'POST', `/channels/${botData.channel_id}/messages`, { content: reply });
-
-          this.globalLastMessage = Date.now();
-          const cooldownTime = Date.now() + this.randomDelay(minCooldown, maxCooldown);
-          this.cooldowns.set(botId, cooldownTime);
-
-          this.recentMessages.push({ sender: botData.name, text: reply, botId: botData.id });
-          if (this.recentMessages.length > this.maxRecent) this.recentMessages.shift();
-          console.log(`[BotManager] ${botData.name}: ${reply}`);
+        // Skip if reply is duplicate of recent messages
+        if (!reply || reply.length === 0 || this.isDuplicateMessage(reply)) {
+          if (this.bots.has(botId)) {
+            setTimeout(runChat, this.randomDelay(minCooldown, maxCooldown));
+          }
+          return;
         }
+
+        await this.simulateTyping(botData.token, botData.channel_id, typingDuration);
+        await rawFetch(botData.token, 'POST', `/channels/${botData.channel_id}/messages`, { content: reply });
+
+        this.globalLastMessage = Date.now();
+        const cooldownTime = Date.now() + this.randomDelay(minCooldown, maxCooldown);
+        this.cooldowns.set(botId, cooldownTime);
+
+        this.recentMessages.push({ sender: botData.name, text: reply, botId: botData.id, timestamp: Date.now() });
+        if (this.recentMessages.length > this.maxRecent) this.recentMessages.shift();
+        console.log(`[BotManager] ${botData.name}: ${reply}`);
       } catch (err) {
         console.error(`[BotManager] Chat error for ${botData.name}: ${err.message}`);
       }
@@ -389,7 +422,7 @@ class BotManager {
       }
     };
 
-    const initialDelay = this.randomDelay(5000, 15000);
+    const initialDelay = this.randomDelay(10000, 25000);
     setTimeout(runChat, initialDelay);
   }
 
@@ -450,7 +483,7 @@ class BotManager {
           await this.simulateTyping(entry.data.token, entry.data.channel_id, typingDuration);
           await rawFetch(entry.data.token, 'POST', `/channels/${entry.data.channel_id}/messages`, { content: redirect });
           this.globalLastMessage = Date.now();
-          this.recentMessages.push({ sender: entry.data.name, text: redirect, botId: entry.data.id });
+          this.recentMessages.push({ sender: entry.data.name, text: redirect, botId: entry.data.id, timestamp: Date.now() });
           if (this.recentMessages.length > this.maxRecent) this.recentMessages.shift();
           console.log(`[BotManager] ${entry.data.name} (topic redirect): ${redirect}`);
         }
@@ -459,7 +492,7 @@ class BotManager {
       }
 
       if (this.bots.has(botId)) {
-        setTimeout(runIdleKick, randomDelay(300000, 600000));
+        setTimeout(runIdleKick, this.randomDelay(300000, 600000));
       }
     };
 
@@ -477,7 +510,8 @@ class BotManager {
   }
 
   async stopAll() {
-    for (const [id] of this.bots) {
+    const ids = [...this.bots.keys()];
+    for (const id of ids) {
       await this.stopBot(id);
     }
   }
@@ -526,10 +560,6 @@ class BotManager {
     if (!entry) throw new Error('Bot not running');
     await rawFetch(entry.data.token, 'POST', `/channels/${entry.data.channel_id}/messages`, { content: message });
   }
-}
-
-function randomDelay(min, max) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
 module.exports = new BotManager();

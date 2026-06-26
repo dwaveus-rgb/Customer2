@@ -45,8 +45,8 @@ async function ensureTables() {
           const defaults = {
             topic: 'what is the best discord server and why',
             ai_api_key: process.env.AI_API_KEY || '',
-            min_delay: '8000',
-            max_delay: '25000',
+            min_delay: '15000',
+            max_delay: '45000',
             typing_min: '3000',
             typing_max: '8000',
             max_length: '200',
@@ -78,6 +78,9 @@ async function ensureTables() {
         console.error(`[DB] Init attempt ${attempts} failed: ${err.message}`);
         if (attempts < 5) {
           await new Promise(r => setTimeout(r, 3000));
+          initPromise = null;
+        } else {
+          console.error('[DB] All init attempts failed, will retry on next query');
           initPromise = null;
         }
       }

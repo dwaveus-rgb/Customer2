@@ -38,9 +38,11 @@ async function loadAll() {
 }
 
 async function loadDashboard() {
-  const bots = await fetch('/api/bots').then(r => r.json());
+  const [bots, settings] = await Promise.all([
+    fetch('/api/bots').then(r => r.json()),
+    fetch('/api/settings').then(r => r.json())
+  ]);
   const activeCount = bots.filter(b => b.is_running).length;
-  const settings = await fetch('/api/settings').then(r => r.json());
 
   document.getElementById('stat-total-bots').textContent = bots.length;
   document.getElementById('stat-active-bots').textContent = activeCount;
@@ -58,8 +60,10 @@ async function loadDashboard() {
 }
 
 async function loadBots() {
-  const bots = await fetch('/api/bots').then(r => r.json());
-  const settings = await fetch('/api/settings').then(r => r.json());
+  const [bots, settings] = await Promise.all([
+    fetch('/api/bots').then(r => r.json()),
+    fetch('/api/settings').then(r => r.json())
+  ]);
   const container = document.getElementById('bot-list');
   if (bots.length === 0) {
     container.innerHTML = '<div class="empty-state">No bots added yet</div>';
@@ -102,8 +106,9 @@ async function addBot() {
     return;
   }
 
-  const channel_id = (await fetch('/api/settings').then(r => r.json())).channel_id || '';
-  const server_id = (await fetch('/api/settings').then(r => r.json())).server_id || '';
+  const settings = await fetch('/api/settings').then(r => r.json());
+  const channel_id = settings.channel_id || '';
+  const server_id = settings.server_id || '';
 
   if (!channel_id || !server_id) {
     alert('Set Server ID and Channel ID in Settings tab first');
@@ -183,7 +188,7 @@ async function saveSettings() {
   const payload = {};
   for (const f of fields) {
     const el = document.getElementById('set-' + f);
-    if (el && el.value) payload[f] = el.value;
+    if (el) payload[f] = el.value;
   }
   const res = await fetch('/api/settings', {
     method: 'PUT',
