@@ -36,6 +36,35 @@ class GeminiChat {
     }
   }
 
+  async generateReply(botName, personality, topic, recentMessages = [], maxLength = 200, customPrompt = '') {
+    const history = recentMessages.map(m => `${m.sender}: ${m.text}`).join('\n');
+    const styleSection = customPrompt ? `\nTalking Style:\n${customPrompt}\n` : '';
+
+    const prompt = `You are ${botName}, a real person in their 20s in a Discord group chat.
+
+Personality: ${personality}
+Topic everyone is discussing: ${topic}
+${styleSection}
+You MUST talk about this topic. Share opinions, ask questions, react to what others say about it.
+
+Style:
+- 1-2 short sentences, like texting a friend
+- Casual lowercase, lazy grammar is fine
+- Give real opinions, not just "lol" or "fr"
+- React to what others said, then add your own take
+- Examples: "honestly i think discord is way better than slack for communities", "wait do yall actually use servers tho or just dms", "the best part is definitely the voice channels ngl"
+- No emojis in text, never mention being AI
+
+Chat history:
+${history || 'No messages yet.'}
+
+What does ${botName} say next?`;
+
+    const response = await this.chat(prompt, 50);
+    if (response) return this.cleanResponse(response, botName, maxLength);
+    return this.smartFallback(topic);
+  }
+
   async generateReplyToMessage(botName, personality, topic, customPrompt, authorName, messageContent, recentMessages = [], maxLength = 200) {
     const history = recentMessages.map(m => `${m.sender}: ${m.text}`).join('\n');
     const styleSection = customPrompt ? `\nTalking Style:\n${customPrompt}\n` : '';

@@ -126,7 +126,8 @@ class BotManager {
       this.bots.set(botData.id, { client, data: botData });
       this.cooldowns.set(botData.id, 0);
 
-      // Start idle topic kickstarter for this bot
+      // Start continuous timer-based chatting + idle topic redirect
+      this.scheduleActivity(botData.id);
       this.scheduleIdleKick(botData.id);
     });
 
@@ -326,6 +327,73 @@ class BotManager {
     } finally {
       this.processingMessage = false;
     }
+  }
+
+  scheduleActivity(botId) {
+    const runChat = async () => {
+      if (!this.bots.has(botId)) return;
+
+      const entry = this.bots.get(botId);
+      const botData = entry.data;
+
+      const minCooldown = parseInt(await db.getSetting('min_delay') || '8000');
+      const maxCooldown = parseInt(await db.getSetting('max_delay') || '25000');
+      const now = Date.now();
+      const botCooldown = this.cooldowns.get(botId) || 0;
+
+      if (now < botCooldown) {
+        setTimeout(runChat, botCooldown - now + 1000);
+        return;
+      }
+
+      const globalMinGap = 3000;
+      if (now - this.globalLastMessage < globalMinGap) {
+        setTimeout(runChat, globalMinGap + 1000);
+        return;
+      }
+
+      try {
+        const typingDuration = this.randomDelay(
+          parseInt(await db.getSetting('typing_min') || '3000'),
+          parseInt(await db.getSetting('typing_max') || '8000')
+        );
+
+        const topic = await db.getSetting('topic') || 'general conversation';
+        const maxLen = parseInt(await db.getSetting('max_length') || '200');
+        const customPrompt = await db.getSetting('custom_prompt') || '';
+
+        const reply = await this.gemini.generateReply(
+          botData.name, botData.personality, topic,
+          this.recentMessages.slice(-10), maxLen, customPrompt
+        );
+
+        if (reply && reply.length > 0) {
+          await this.simulateTyping(botData.token, botData.channel_id, typingDuration);
+          await rawFetch(botData.token, 'POST', `/channels/${botData.channel_id}/messages`, { content: reply });
+
+          this.globalLastMessage = Date.now();
+          const cooldownTime = Date.now() + this.randomDelay(minCooldown, maxCooldown);
+          this.cooldowns.set(botId, cooldownTime);
+
+          this.recentMessages.push({ sender: botData.name, text: reply, botId: botData.id });
+          if (this.recentMessages.length > this.maxRecent) this.recentMessages.shift();
+          console.log(`[BotManager] ${botData.name}: ${reply}`);
+        }
+      } catch (err) {
+        console.error(`[BotManager] Chat error for ${botData.name}: ${err.message}`);
+      }
+
+      if (this.bots.has(botId)) {
+        const nextDelay = this.randomDelay(
+          parseInt(await db.getSetting('min_delay') || '8000'),
+          parseInt(await db.getSetting('max_delay') || '25000')
+        );
+        setTimeout(runChat, nextDelay);
+      }
+    };
+
+    const initialDelay = this.randomDelay(5000, 15000);
+    setTimeout(runChat, initialDelay);
   }
 
   async scheduleReaction(message, channelId, reactionChance) {
