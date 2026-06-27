@@ -74,11 +74,7 @@ class MessageQueue {
   }
 
   enqueue(task) {
-    if (this.holdQueue && task.type === 'bot') {
-      this.queue.push(task);
-    } else {
-      this.queue.push(task);
-    }
+    this.queue.push(task);
     this.processQueue().catch(err => {
       console.error('[Queue] processQueue error:', err.message);
       this.processing = false;
@@ -117,26 +113,29 @@ class MessageQueue {
 
         const task = this.queue[0];
 
-        if (task.type === 'bot') {
-          if (task.senderId === this.lastSenderId) {
-            const otherIdx = this.queue.findIndex(t => t.type === 'bot' && t.senderId !== this.lastSenderId);
-            if (otherIdx > 0) {
-              const other = this.queue.splice(otherIdx, 1)[0];
-              this.queue.unshift(other);
-              console.log(`[Queue] Swapped ${task.senderName} with ${other.senderName} for turn-taking`);
-              continue;
-            }
-          }
-
-          const now = Date.now();
-          const waitMs = this.minGapBetweenMessages - (now - this.lastSendTime);
-          if (waitMs > 0) {
-            await this.delay(waitMs);
-          }
-
+        if (task.type !== 'bot') {
           this.queue.shift();
-          await this.sendBotTask(task);
+          continue;
         }
+
+        if (task.senderId === this.lastSenderId) {
+          const otherIdx = this.queue.findIndex(t => t.type === 'bot' && t.senderId !== this.lastSenderId);
+          if (otherIdx > 0) {
+            const other = this.queue.splice(otherIdx, 1)[0];
+            this.queue.unshift(other);
+            console.log(`[Queue] Swapped ${task.senderName} with ${other.senderName} for turn-taking`);
+            continue;
+          }
+        }
+
+        const now = Date.now();
+        const waitMs = this.minGapBetweenMessages - (now - this.lastSendTime);
+        if (waitMs > 0) {
+          await this.delay(waitMs);
+        }
+
+        this.queue.shift();
+        await this.sendBotTask(task);
       }
     } finally {
       this.processing = false;

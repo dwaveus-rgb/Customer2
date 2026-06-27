@@ -37,7 +37,8 @@ class GeminiChat {
   }
 
   getActiveClient() {
-    return this.usingFallback ? this.fallbackClient : this.client;
+    if (this.usingFallback) return this.fallbackClient;
+    return this.client || this.fallbackClient;
   }
 
   async chat(systemPrompt, maxTokens = 50, retries = 4) {
