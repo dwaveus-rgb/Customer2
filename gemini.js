@@ -1,86 +1,85 @@
 const OpenAI = require('openai');
 
-const FALLBACK_API_KEY = process.env.AI_API_KEY_FALLBACK || '';
-
-let lastApiCall = 0;
-const API_MIN_GAP = 1500;
-
-async function rateLimitWait() {
-  const now = Date.now();
-  const wait = API_MIN_GAP - (now - lastApiCall);
-  if (wait > 0) await new Promise(r => setTimeout(r, wait));
-  lastApiCall = Date.now();
-}
+const BASE_URL = 'https://openrouter.ai/api/v1';
 
 class GeminiChat {
-  constructor(apiKey) {
-    this.apiKey = apiKey;
-    this.client = apiKey ? new OpenAI({
-      apiKey,
-      baseURL: 'https://openrouter.ai/api/v1',
-    }) : null;
-    this.fallbackClient = new OpenAI({
-      apiKey: FALLBACK_API_KEY,
-      baseURL: 'https://openrouter.ai/api/v1',
-    });
+  constructor(apiKeys = []) {
+    this.keys = Array.isArray(apiKeys) ? apiKeys.filter(Boolean) : [];
+    this.clients = this.keys.map(key => new OpenAI({ apiKey: key, baseURL: BASE_URL }));
     this.model = 'openrouter/free';
-    this.usingFallback = false;
+    this.currentIdx = 0;
+    this.keyCooldowns = new Map();
+    this.lastApiCall = 0;
+    console.log(`[Gemini] Initialized with ${this.clients.length} API key(s)`);
   }
 
-  updateKey(key) {
-    this.apiKey = key;
-    this.client = key ? new OpenAI({
-      apiKey: key,
-      baseURL: 'https://openrouter.ai/api/v1',
-    }) : null;
-    console.log('[Gemini] API key', key ? 'updated' : 'cleared');
+  updateKeys(keys) {
+    this.keys = Array.isArray(keys) ? keys.filter(Boolean) : [];
+    this.clients = this.keys.map(key => new OpenAI({ apiKey: key, baseURL: BASE_URL }));
+    this.currentIdx = 0;
+    this.keyCooldowns.clear();
+    console.log(`[Gemini] Updated to ${this.clients.length} API key(s)`);
   }
 
-  getActiveClient() {
-    if (this.usingFallback) return this.fallbackClient;
-    return this.client || this.fallbackClient;
+  pickClient() {
+    if (this.clients.length === 0) return null;
+    const now = Date.now();
+    for (let i = 0; i < this.clients.length; i++) {
+      const idx = (this.currentIdx + i) % this.clients.length;
+      const cd = this.keyCooldowns.get(idx) || 0;
+      if (now >= cd) {
+        this.currentIdx = idx;
+        return { client: this.clients[idx], idx };
+      }
+    }
+    let bestIdx = 0, bestCd = Infinity;
+    for (let i = 0; i < this.clients.length; i++) {
+      const cd = this.keyCooldowns.get(i) || 0;
+      if (cd < bestCd) { bestCd = cd; bestIdx = i; }
+    }
+    this.currentIdx = bestIdx;
+    return { client: this.clients[bestIdx], idx: bestIdx };
   }
 
-  async chat(systemPrompt, maxTokens = 50, retries = 4) {
-    if (!this.client && !this.fallbackClient) {
+  markLimited(idx) {
+    this.keyCooldowns.set(idx, Date.now() + 60000);
+    this.currentIdx = (idx + 1) % this.clients.length;
+  }
+
+  async chat(systemPrompt, maxTokens = 150, retries = 10) {
+    if (this.clients.length === 0) {
       console.error('[Gemini] No API keys available');
       return null;
     }
-    for (let attempt = 0; attempt <= retries; attempt++) {
-      await rateLimitWait();
+    for (let attempt = 0; attempt < retries; attempt++) {
+      const gap = Math.max(200, 1500 - (Date.now() - this.lastApiCall));
+      if (gap > 0) await new Promise(r => setTimeout(r, gap));
+      this.lastApiCall = Date.now();
+
+      const { client, idx } = this.pickClient();
       try {
-        const client = this.getActiveClient();
         const result = await client.chat.completions.create({
           model: this.model,
           messages: [{ role: 'system', content: systemPrompt }],
           max_tokens: maxTokens,
           temperature: 0.9,
         });
-        if (!result || !result.choices || !result.choices.length) {
-          console.error('[OpenRouter] Empty result:', JSON.stringify(result).slice(0, 200));
+        if (!result?.choices?.length) {
+          console.error('[OpenRouter] Empty result');
           return null;
         }
         return result.choices[0]?.message?.content?.trim() || null;
       } catch (err) {
         if (err.status === 429) {
-          if (!this.usingFallback && this.fallbackClient) {
-            console.warn(`[OpenRouter] Primary key rate limited, switching to fallback key`);
-            this.usingFallback = true;
-            lastApiCall = Date.now();
-            continue;
-          }
-          if (attempt < retries) {
-            const wait = Math.min((attempt + 1) * 8000, 25000);
-            console.warn(`[OpenRouter] Rate limited, retrying in ${wait / 1000}s (attempt ${attempt + 1}/${retries})`);
-            await new Promise(r => setTimeout(r, wait));
-            lastApiCall = Date.now();
-            continue;
-          }
+          this.markLimited(idx);
+          console.warn(`[OpenRouter] Key ${idx + 1}/${this.clients.length} rate limited, rotating (attempt ${attempt + 1}/${retries})`);
+          continue;
         }
         console.error('[OpenRouter Error]', err.message, err.status || '');
         return null;
       }
     }
+    console.error('[OpenRouter] All retries exhausted');
     return null;
   }
 
@@ -248,7 +247,7 @@ What does ${botName} say?`);
       `frfr ${topic} is something else`,
       `broo the ${topic} discourse is insane`,
       `yo real talk tho whats everyones take on ${topic}`,
-      `honestly ${topic}dont get enough attention`,
+      `honestly ${topic} dont get enough attention`,
       `ion even know what to say about ${topic} anymore`
     ];
     return replies[Math.floor(Math.random() * replies.length)];

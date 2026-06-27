@@ -86,9 +86,6 @@ class MessageQueue {
       this.typingAbort.abort();
       this.typingAbort = null;
       this.currentBotTyping = null;
-      const pauseMs = Math.max(300, parseInt(await db.getSetting('typing_pause_ms') || '500'));
-      console.log(`[Queue] Typing paused for ${pauseMs}ms`);
-      await new Promise(r => setTimeout(r, pauseMs));
     }
   }
 
@@ -107,7 +104,7 @@ class MessageQueue {
     try {
       while (this.queue.length > 0) {
         if (this.holdQueue) {
-          await this.delay(1000);
+          await this.delay(500);
           continue;
         }
 
@@ -148,9 +145,9 @@ class MessageQueue {
 
     const charLen = task.content.length;
     const wordCount = task.content.split(/\s+/).length;
-    const smartTypingMs = Math.min(Math.max(1000 + charLen * 15 + wordCount * 80, 1500), 2500);
+    const smartTypingMs = Math.min(Math.max(800 + charLen * 10 + wordCount * 60, 1200), 2500);
     const jitter = this.bm.randomDelay(-200, 200);
-    const typingDuration = Math.max(1500, smartTypingMs + jitter);
+    const typingDuration = Math.max(1200, smartTypingMs + jitter);
 
     const abort = new AbortController();
     this.currentBotTyping = task.senderId;
@@ -161,7 +158,7 @@ class MessageQueue {
       await this.simulateTypingWithAbort(task.token, liveChannelId, typingDuration, abort.signal);
     } catch (e) {
       if (e.name === 'AbortError') {
-        console.log(`[Queue] ${task.senderName} typing aborted — member message received`);
+        console.log(`[Queue] ${task.senderName} typing aborted`);
         this.currentBotTyping = null;
         this.typingAbort = null;
         return;
@@ -186,7 +183,7 @@ class MessageQueue {
         return;
       } catch (err) {
         console.error(`[Queue] Failed to send ${task.senderName} (attempt ${attempt + 1}):`, err.message);
-        if (attempt === 0) await this.delay(2000);
+        if (attempt === 0) await this.delay(1500);
       }
     }
 
@@ -237,33 +234,36 @@ class BotManager {
     this.repliedMessages = new Set();
     this.lastMemberMessage = 0;
     this.msgQueue = new MessageQueue(this);
-    this.memberHandling = null;
+    this.processingMember = false;
+    this.latestMemberMsg = null;
+  }
+
+  async loadApiKeys() {
+    const keys = [];
+    const dbKey = await db.getSetting('ai_api_key');
+    if (dbKey) {
+      dbKey.split(',').map(k => k.trim()).filter(Boolean).forEach(k => keys.push(k));
+    }
+    for (let i = 2; i <= 10; i++) {
+      const envKey = process.env[`AI_API_KEY_${i}`];
+      if (envKey && !keys.includes(envKey)) keys.push(envKey);
+    }
+    const fallback = process.env.AI_API_KEY_FALLBACK;
+    if (fallback && !keys.includes(fallback)) keys.push(fallback);
+    return keys;
   }
 
   async init() {
-    let key = await db.getSetting('ai_api_key');
-    if (!key && process.env.AI_API_KEY) {
-      key = process.env.AI_API_KEY;
-      await db.setSetting('ai_api_key', key);
-      console.log('[BotManager] Loaded AI_API_KEY from env var');
-    }
-    this.gemini = new GeminiChat(key || '');
+    const keys = await this.loadApiKeys();
+    this.gemini = new GeminiChat(keys);
     this.ready = true;
-    console.log('[BotManager] Initialized, AI key:', key ? key.slice(0, 8) + '...' : 'NOT SET');
+    console.log('[BotManager] Initialized, keys loaded:', keys.length);
   }
 
-  async updateGeminiKey() {
-    let key = await db.getSetting('ai_api_key');
-    if (!key && process.env.AI_API_KEY) {
-      key = process.env.AI_API_KEY;
-      await db.setSetting('ai_api_key', key);
-    }
-    if (key && this.gemini) {
-      this.gemini.updateKey(key);
-      console.log('[BotManager] AI key updated:', key.slice(0, 8) + '...');
-    } else {
-      console.warn('[BotManager] No AI key found in DB or env');
-    }
+  async updateGeminiKeys() {
+    const keys = await this.loadApiKeys();
+    if (this.gemini) this.gemini.updateKeys(keys);
+    console.log('[BotManager] API keys updated:', keys.length);
   }
 
   async startBot(botData) {
@@ -327,7 +327,8 @@ class BotManager {
         this.recentMessages.push(msgData);
         if (this.recentMessages.length > this.maxRecent) this.recentMessages.shift();
 
-        await this.handleMemberMessage(message, liveChannelId);
+        this.latestMemberMsg = { message, liveChannelId };
+        this.processMemberQueue();
         return;
       }
 
@@ -360,20 +361,26 @@ class BotManager {
     }
   }
 
+  async processMemberQueue() {
+    if (this.processingMember) return;
+    this.processingMember = true;
+
+    try {
+      while (this.latestMemberMsg) {
+        const { message, liveChannelId } = this.latestMemberMsg;
+        this.latestMemberMsg = null;
+        await this.handleMemberMessage(message, liveChannelId);
+      }
+    } finally {
+      this.processingMember = false;
+    }
+  }
+
   async handleMemberMessage(message, channelId) {
     if (!this.gemini) return;
 
-    if (this.memberHandling) {
-      console.log('[BotManager] Waiting for previous member message handling to finish...');
-      await this.memberHandling;
-    }
-
-    let resolve;
-    this.memberHandling = new Promise(r => { resolve = r; });
-
     try {
       await this.msgQueue.pauseCurrentTyping();
-
       this.msgQueue.clearQueue(task => task.type === 'bot');
 
       const reactionChance = parseInt(await db.getSetting('reaction_chance') || '20');
@@ -386,11 +393,6 @@ class BotManager {
       const customPrompt = await db.getSetting('custom_prompt') || '';
       const maxLen = parseInt(await db.getSetting('max_length') || '200');
 
-      const replyDelayMin = Math.max(1000, parseInt(await db.getSetting('reply_delay_min') || '1000'));
-      const replyDelayMax = Math.max(replyDelayMin + 500, parseInt(await db.getSetting('reply_delay_max') || '4000'));
-      const followUpDelayMin = Math.max(1500, parseInt(await db.getSetting('follow_up_delay_min') || '2000'));
-      const followUpDelayMax = Math.max(followUpDelayMin + 500, parseInt(await db.getSetting('follow_up_delay_max') || '6000'));
-
       const lastSender = this.msgQueue.lastSenderId;
       let eligibleBots = botEntries;
       if (lastSender && lastSender !== 'member') {
@@ -400,8 +402,7 @@ class BotManager {
       const firstBotIdx = Math.floor(Math.random() * eligibleBots.length);
       const firstBotData = eligibleBots[firstBotIdx][1].data;
 
-      const replyDelay = this.randomDelay(replyDelayMin, replyDelayMax);
-      await this.delay(replyDelay);
+      await this.delay(this.randomDelay(200, 500));
 
       if (!this.bots.has(firstBotData.id)) return;
 
@@ -421,15 +422,14 @@ class BotManager {
           content: firstReply
         });
 
-        await this.msgQueue.delay(this.msgQueue.minGapBetweenMessages);
+        await this.delay(this.randomDelay(300, 600));
 
         if (botEntries.length > 1) {
           const availableFollowUps = botEntries.filter(([id]) => id !== firstBotData.id);
           if (availableFollowUps.length > 0) {
             const followUpData = availableFollowUps[Math.floor(Math.random() * availableFollowUps.length)][1].data;
 
-            const followDelay = this.randomDelay(followUpDelayMin, followUpDelayMax);
-            await this.delay(followDelay);
+            await this.delay(this.randomDelay(300, 800));
 
             if (this.bots.has(followUpData.id)) {
               const followReply = await this.gemini.generateFollowUp(
@@ -451,15 +451,12 @@ class BotManager {
           }
         }
 
-        await this.msgQueue.delay(this.msgQueue.minGapBetweenMessages);
+        await this.delay(300);
         this.msgQueue.holdQueue = false;
       }
     } catch (err) {
       console.error(`[BotManager] Message handling error: ${err.message}`);
       this.msgQueue.holdQueue = false;
-    } finally {
-      resolve();
-      this.memberHandling = null;
     }
   }
 
@@ -488,29 +485,29 @@ class BotManager {
       const botCooldown = this.cooldowns.get(botId) || 0;
 
       if (now < botCooldown) {
-        setTimeout(runChat, botCooldown - now + 1000);
+        setTimeout(runChat, botCooldown - now + 500);
         return;
       }
 
       const timeSinceMemberMsg = now - this.lastMemberMessage;
-      if (this.lastMemberMessage > 0 && timeSinceMemberMsg < 8000) {
-        setTimeout(runChat, 8000 - timeSinceMemberMsg + 1000);
+      if (this.lastMemberMessage > 0 && timeSinceMemberMsg < 5000) {
+        setTimeout(runChat, 5000 - timeSinceMemberMsg + 500);
         return;
       }
 
       if (this.msgQueue.holdQueue) {
-        setTimeout(runChat, 2000);
+        setTimeout(runChat, 1000);
         return;
       }
 
-      if (this.memberHandling) {
-        setTimeout(runChat, 2000);
+      if (this.processingMember) {
+        setTimeout(runChat, 1000);
         return;
       }
 
       const lastSender = this.msgQueue.lastSenderId;
       if (lastSender && String(lastSender) === String(botId)) {
-        setTimeout(runChat, this.randomDelay(1500, 3000));
+        setTimeout(runChat, this.randomDelay(1000, 2000));
         return;
       }
 
@@ -531,7 +528,7 @@ class BotManager {
           return;
         }
 
-        if (!this.msgQueue.holdQueue && !this.memberHandling) {
+        if (!this.msgQueue.holdQueue && !this.processingMember) {
           this.msgQueue.enqueue({
             type: 'bot',
             senderId: botData.id,
@@ -589,6 +586,8 @@ class BotManager {
   async stopAll() {
     this.msgQueue.clearQueue();
     this.msgQueue.holdQueue = false;
+    this.processingMember = false;
+    this.latestMemberMsg = null;
     const ids = [...this.bots.keys()];
     for (const id of ids) {
       await this.stopBot(id);
