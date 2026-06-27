@@ -19,7 +19,7 @@ class GeminiChat {
     console.log('[Gemini] API key', key ? 'updated' : 'cleared');
   }
 
-  async chat(systemPrompt, maxTokens = 80) {
+  async chat(systemPrompt, maxTokens = 50) {
     if (!this.client) {
       console.error('[OpenRouter] No client - API key not set');
       return null;
@@ -66,7 +66,7 @@ ${history || 'No messages yet.'}
 
 What does ${botName} say next?`;
 
-    const response = await this.chat(prompt, 80);
+    const response = await this.chat(prompt, 50);
     if (response) return this.cleanResponse(response, botName, maxLength);
     return this.smartFallback(topic);
   }
@@ -96,7 +96,7 @@ ${history || 'No messages yet.'}
 
 What does ${botName} say?`;
 
-    const response = await this.chat(prompt, 80);
+    const response = await this.chat(prompt, 50);
     if (response) return this.cleanResponse(response, botName, maxLength);
     return this.smartFallback(topic);
   }
@@ -125,7 +125,7 @@ ${history || 'No messages yet.'}
 
 What does ${botName} say?`;
 
-    const response = await this.chat(prompt, 80);
+    const response = await this.chat(prompt, 50);
     if (response) return this.cleanResponse(response, botName, maxLength);
     return this.smartFallback(topic);
   }
