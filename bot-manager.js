@@ -304,7 +304,10 @@ class BotManager {
 
   scheduleActivity(botId) {
     const runChat = async () => {
-      if (!this.bots.has(botId)) return;
+      if (!this.bots.has(botId)) {
+        console.log(`[BotManager] ${botId} no longer in bots map, stopping timer`);
+        return;
+      }
 
       const entry = this.bots.get(botId);
       const botData = entry.data;
@@ -315,19 +318,22 @@ class BotManager {
       const botCooldown = this.cooldowns.get(botId) || 0;
 
       if (now < botCooldown) {
+        console.log(`[BotManager] ${botData.name} cooldown active, waiting ${botCooldown - now}ms`);
         setTimeout(runChat, botCooldown - now + 1000);
         return;
       }
 
       // Pause timer chat for 60 seconds after a member message
       const timeSinceMemberMsg = now - this.lastMemberMessage;
-      if (timeSinceMemberMsg < 60000) {
+      if (this.lastMemberMessage > 0 && timeSinceMemberMsg < 60000) {
+        console.log(`[BotManager] ${botData.name} pausing, member msg ${timeSinceMemberMsg}ms ago`);
         setTimeout(runChat, 60000 - timeSinceMemberMsg + 5000);
         return;
       }
 
       // Don't send while handling a member message
       if (this.isHandlingMember) {
+        console.log(`[BotManager] ${botData.name} pausing, handling member message`);
         setTimeout(runChat, 5000);
         return;
       }
@@ -335,11 +341,13 @@ class BotManager {
       // Global gap: at least 10 seconds between ANY bot messages
       const globalMinGap = 10000;
       if (now - this.globalLastMessage < globalMinGap) {
+        console.log(`[BotManager] ${botData.name} pausing, global gap active`);
         setTimeout(runChat, globalMinGap + 2000);
         return;
       }
 
       try {
+        console.log(`[BotManager] ${botData.name} generating reply...`);
         const typingDuration = this.randomDelay(
           parseInt(await db.getSetting('typing_min') || '3000'),
           parseInt(await db.getSetting('typing_max') || '8000')
@@ -354,7 +362,10 @@ class BotManager {
           this.recentMessages.slice(-10), maxLen, customPrompt
         );
 
+        console.log(`[BotManager] ${botData.name} got reply: ${reply ? reply.slice(0, 50) : 'NULL'}`);
+
         if (!reply || reply.length === 0 || this.isDuplicateMessage(reply)) {
+          console.log(`[BotManager] ${botData.name} reply skipped (empty/duplicate)`);
           if (this.bots.has(botId)) {
             setTimeout(runChat, this.randomDelay(minCooldown, maxCooldown));
           }
@@ -373,7 +384,7 @@ class BotManager {
         if (this.recentMessages.length > this.maxRecent) this.recentMessages.shift();
         console.log(`[BotManager] ${botData.name}: ${reply}`);
       } catch (err) {
-        console.error(`[BotManager] Chat error for ${botData.name}: ${err.message}`);
+        console.error(`[BotManager] Chat error for ${botData.name}:`, err.message, err.stack?.slice(0, 200));
       }
 
       if (this.bots.has(botId)) {
@@ -382,7 +393,8 @@ class BotManager {
       }
     };
 
-    const initialDelay = this.randomDelay(15000, 30000);
+    const initialDelay = this.randomDelay(5000, 15000);
+    console.log(`[BotManager] scheduleActivity started for ${botId}, initial delay ${initialDelay}ms`);
     setTimeout(runChat, initialDelay);
   }
 

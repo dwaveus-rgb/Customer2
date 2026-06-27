@@ -19,8 +19,11 @@ class GeminiChat {
     console.log('[Gemini] API key', key ? 'updated' : 'cleared');
   }
 
-  async chat(systemPrompt, maxTokens = 50) {
-    if (!this.client) return null;
+  async chat(systemPrompt, maxTokens = 80) {
+    if (!this.client) {
+      console.error('[OpenRouter] No client - API key not set');
+      return null;
+    }
     try {
       const result = await this.client.chat.completions.create({
         model: this.model,
@@ -28,10 +31,13 @@ class GeminiChat {
         max_tokens: maxTokens,
         temperature: 0.9,
       });
-      if (!result || !result.choices || !result.choices.length) return null;
+      if (!result || !result.choices || !result.choices.length) {
+        console.error('[OpenRouter] Empty result:', JSON.stringify(result).slice(0, 200));
+        return null;
+      }
       return result.choices[0]?.message?.content?.trim() || null;
     } catch (err) {
-      console.error('[OpenRouter Error]', err.message);
+      console.error('[OpenRouter Error]', err.message, err.status || '');
       return null;
     }
   }
