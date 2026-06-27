@@ -68,7 +68,6 @@ class MessageQueue {
     this.lastSenderId = null;
     this.currentBotTyping = null;
     this.typingAbort = null;
-    this.minGapBetweenMessages = 800;
     this.lastSendTime = 0;
     this.holdQueue = false;
     this.sentMessageIds = new Map();
