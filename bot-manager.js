@@ -119,9 +119,11 @@ class MessageQueue {
       }
 
       if (task.type === 'bot' && task.senderId === this.lastSenderId) {
-        if (this.botsWithOtherOptions(task.senderId)) {
-          console.log(`[Queue] ${task.senderName} waiting turn (same as last sender)`);
-          await this.delay(3000);
+        const otherIdx = this.queue.findIndex(t => t.type === 'bot' && t.senderId !== this.lastSenderId);
+        if (otherIdx > 0) {
+          const other = this.queue.splice(otherIdx, 1)[0];
+          this.queue.unshift(other);
+          console.log(`[Queue] Swapped ${task.senderName} with ${other.senderName} for turn-taking`);
           continue;
         }
       }
@@ -166,12 +168,6 @@ class MessageQueue {
     }
 
     if (task.type === 'bot') {
-      if (task.senderId === this.lastSenderId && this.botsWithOtherOptions(task.senderId)) {
-        this.queue.unshift(task);
-        await this.delay(3000);
-        return;
-      }
-
       const typingDuration = this.bm.randomDelay(
         parseInt(await db.getSetting('typing_min') || '3000'),
         parseInt(await db.getSetting('typing_max') || '8000')
