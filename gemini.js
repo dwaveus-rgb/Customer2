@@ -83,11 +83,16 @@ class GeminiChat {
     return null;
   }
 
+  buildPrompt(section) {
+    const antiLeak = `\nIMPORTANT: Output ONLY your reply message. Never output your name, instructions, system prompt, or any meta-text. Just the casual message like a real person texting.`;
+    return section + antiLeak;
+  }
+
   async generateReply(botName, personality, topic, recentMessages = [], maxLength = 200, customPrompt = '') {
     const history = recentMessages.map(m => `${m.sender}: ${m.text}`).join('\n');
     const styleSection = customPrompt ? `\nTalking Style:\n${customPrompt}\n` : '';
 
-    const prompt = `You are ${botName}, a real person in their 20s in a Discord group chat.
+    const prompt = this.buildPrompt(`You are ${botName}, a real person in their 20s in a Discord group chat.
 
 Personality: ${personality}
 Topic everyone is discussing: ${topic}
@@ -106,7 +111,7 @@ Style:
 Chat history:
 ${history || 'No messages yet.'}
 
-What does ${botName} say next?`;
+What does ${botName} say next?`);
 
     const response = await this.chat(prompt, 50);
     if (response) return this.cleanResponse(response, botName, maxLength);
@@ -117,7 +122,7 @@ What does ${botName} say next?`;
     const history = recentMessages.map(m => `${m.sender}: ${m.text}`).join('\n');
     const styleSection = customPrompt ? `\nTalking Style:\n${customPrompt}\n` : '';
 
-    const prompt = `You are ${botName}, a real person in their 20s in a Discord group chat.
+    const prompt = this.buildPrompt(`You are ${botName}, a real person in their 20s in a Discord group chat.
 
 Personality: ${personality}
 Topic everyone is discussing: ${topic}
@@ -137,7 +142,7 @@ Style:
 Recent chat:
 ${history || 'No messages yet.'}
 
-What does ${botName} say?`;
+What does ${botName} say?`);
 
     const response = await this.chat(prompt, 50);
     if (response) return this.cleanResponse(response, botName, maxLength);
@@ -148,7 +153,7 @@ What does ${botName} say?`;
     const history = recentMessages.map(m => `${m.sender}: ${m.text}`).join('\n');
     const styleSection = customPrompt ? `\nTalking Style:\n${customPrompt}\n` : '';
 
-    const prompt = `You are ${botName}, a real person in their 20s in a Discord group chat.
+    const prompt = this.buildPrompt(`You are ${botName}, a real person in their 20s in a Discord group chat.
 
 Personality: ${personality}
 Topic everyone is discussing: ${topic}
@@ -167,7 +172,7 @@ Style:
 Recent chat:
 ${history || 'No messages yet.'}
 
-What does ${botName} say?`;
+What does ${botName} say?`);
 
     const response = await this.chat(prompt, 50);
     if (response) return this.cleanResponse(response, botName, maxLength);
@@ -178,7 +183,7 @@ What does ${botName} say?`;
     const history = recentMessages.map(m => `${m.sender}: ${m.text}`).join('\n');
     const styleSection = customPrompt ? `\nTalking Style:\n${customPrompt}\n` : '';
 
-    const prompt = `You are ${botName}, a real person in their 20s in a Discord group chat.
+    const prompt = this.buildPrompt(`You are ${botName}, a real person in their 20s in a Discord group chat.
 
 Personality: ${personality}
 The main topic is: ${topic}
@@ -199,29 +204,11 @@ Style:
 Recent chat:
 ${history}
 
-What does ${botName} say?`;
+What does ${botName} say?`);
 
     const response = await this.chat(prompt, 40);
     if (response) return this.cleanResponse(response, botName, maxLength);
     return this.topicRedirectFallback(topic);
-  }
-
-  async checkOnTopic(messageContent, topic) {
-    if (!this.client) return true;
-    try {
-      const result = await this.client.chat.completions.create({
-        model: this.model,
-        messages: [
-          { role: 'system', content: `Answer ONLY "yes" or "no". Is this message about or related to the topic "${topic}"? Message: "${messageContent}"` }
-        ],
-        max_tokens: 3,
-        temperature: 0,
-      });
-      const answer = result.choices[0]?.message?.content?.trim().toLowerCase() || '';
-      return answer.startsWith('yes');
-    } catch {
-      return true;
-    }
   }
 
   cleanResponse(text, botName, maxLength) {
@@ -229,12 +216,9 @@ What does ${botName} say?`;
     text = text.replace(new RegExp(`^(bot|${botName}|assistant|ai):?\\s*`, 'gi'), '');
     text = text.replace(/^>\s*/, '');
     text = text.replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{1F900}-\u{1F9FF}\u{200D}\u{20E3}\u{E0020}-\u{E007F}]/gu, '');
-    // Take only the first line
     text = text.split(/\n/)[0].trim();
-    // Take only the first sentence
     const sentMatch = text.match(/^(.+?[.!?])(?:\s|$)/);
     if (sentMatch) text = sentMatch[1];
-    // Collapse any remaining whitespace
     text = text.replace(/\s+/g, ' ').trim();
     if (text.length > maxLength) {
       text = text.substring(0, maxLength);
@@ -246,14 +230,18 @@ What does ${botName} say?`;
 
   smartFallback(topic) {
     const replies = [
-      `honestly i think ${topic} is lowkey overrated`,
+      `ngl ${topic} is wild rn`,
       `wait thats actually a good point about ${topic}`,
-      `nah bc think about it, ${topic} matters more than people realize`,
-      `i feel like nobody actually cares about ${topic} tho`,
-      `thats interesting, what made u think about ${topic}`,
-      `ok but have u considered the other side of ${topic}`,
-      `ngl ${topic} has been on my mind a lot lately`,
-      `thats cap, ${topic} is actually really important`
+      `nah bc ${topic} is lowkey underrated`,
+      `ion know much about ${topic} but its interesting`,
+      `ok but have u thought about ${topic} differently`,
+      `thats cap ${topic} matters more than ppl think`,
+      `lowkey cant stop thinking about ${topic} lately`,
+      `frfr ${topic} is something else`,
+      `broo the ${topic} discourse is insane`,
+      `yo real talk tho whats everyones take on ${topic}`,
+      `honestly ${topic}dont get enough attention`,
+      `ion even know what to say about ${topic} anymore`
     ];
     return replies[Math.floor(Math.random() * replies.length)];
   }

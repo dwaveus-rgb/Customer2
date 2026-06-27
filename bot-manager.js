@@ -90,7 +90,7 @@ class MessageQueue {
       this.typingAbort.abort();
       this.typingAbort = null;
       this.currentBotTyping = null;
-      const pauseMs = parseInt(await db.getSetting('typing_pause_ms') || '500');
+      const pauseMs = Math.max(300, parseInt(await db.getSetting('typing_pause_ms') || '500'));
       console.log(`[Queue] Typing paused for ${pauseMs}ms`);
       await new Promise(r => setTimeout(r, pauseMs));
     }
@@ -147,11 +147,11 @@ class MessageQueue {
     const liveChannelId = await db.getSetting('channel_id');
     if (!liveChannelId) return;
 
-    const words = task.content.split(/\s+/).length;
     const charLen = task.content.length;
-    const smartTypingMs = Math.min(Math.max(800 + charLen * 40 + words * 200, 1500), 5000);
-    const jitter = this.bm.randomDelay(-500, 500);
-    const typingDuration = Math.max(1000, smartTypingMs + jitter);
+    const wordCount = task.content.split(/\s+/).length;
+    const smartTypingMs = Math.min(Math.max(1000 + charLen * 30 + wordCount * 150, 1500), 5000);
+    const jitter = this.bm.randomDelay(-300, 300);
+    const typingDuration = Math.max(1500, smartTypingMs + jitter);
 
     const abort = new AbortController();
     this.currentBotTyping = task.senderId;
@@ -387,10 +387,10 @@ class BotManager {
       const customPrompt = await db.getSetting('custom_prompt') || '';
       const maxLen = parseInt(await db.getSetting('max_length') || '200');
 
-      const replyDelayMin = parseInt(await db.getSetting('reply_delay_min') || '1000');
-      const replyDelayMax = parseInt(await db.getSetting('reply_delay_max') || '4000');
-      const followUpDelayMin = parseInt(await db.getSetting('follow_up_delay_min') || '2000');
-      const followUpDelayMax = parseInt(await db.getSetting('follow_up_delay_max') || '6000');
+      const replyDelayMin = Math.max(1000, parseInt(await db.getSetting('reply_delay_min') || '1000'));
+      const replyDelayMax = Math.max(replyDelayMin + 500, parseInt(await db.getSetting('reply_delay_max') || '4000'));
+      const followUpDelayMin = Math.max(1500, parseInt(await db.getSetting('follow_up_delay_min') || '2000'));
+      const followUpDelayMax = Math.max(followUpDelayMin + 500, parseInt(await db.getSetting('follow_up_delay_max') || '6000'));
 
       const lastSender = this.msgQueue.lastSenderId;
       let eligibleBots = botEntries;
@@ -483,8 +483,8 @@ class BotManager {
       const entry = this.bots.get(botId);
       const botData = entry.data;
 
-      const minCooldown = parseInt(await db.getSetting('min_delay') || '8000');
-      const maxCooldown = parseInt(await db.getSetting('max_delay') || '20000');
+      const minCooldown = Math.max(5000, parseInt(await db.getSetting('min_delay') || '8000'));
+      const maxCooldown = Math.max(minCooldown + 2000, parseInt(await db.getSetting('max_delay') || '20000'));
       const now = Date.now();
       const botCooldown = this.cooldowns.get(botId) || 0;
 
