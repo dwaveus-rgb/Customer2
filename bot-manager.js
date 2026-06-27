@@ -71,6 +71,7 @@ class MessageQueue {
     this.minGapBetweenMessages = 500;
     this.lastSendTime = 0;
     this.holdQueue = false;
+    this.lastSentMessageId = null;
   }
 
   enqueue(task) {
@@ -172,14 +173,22 @@ class MessageQueue {
     this.typingAbort = null;
 
     const content = task.content;
+    const body = { content };
+    if (task.replyToId) {
+      const replyChance = parseInt(await db.getSetting('reply_chance') || '80');
+      if (Math.random() * 100 < replyChance) {
+        body.message_reference = { message_id: task.replyToId };
+      }
+    }
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        await rawFetch(task.token, 'POST', `/channels/${liveChannelId}/messages`, { content });
+        const sent = await rawFetch(task.token, 'POST', `/channels/${liveChannelId}/messages`, body);
         this.lastSenderId = task.senderId;
         this.lastSendTime = Date.now();
         this.bm.recentMessages.push({ sender: task.senderName, text: content, botId: task.senderId, timestamp: Date.now() });
         if (this.bm.recentMessages.length > this.bm.maxRecent) this.bm.recentMessages.shift();
         console.log(`[Queue] ${task.senderName}: ${content}`);
+        this.lastSentMessageId = sent?.id || null;
         return;
       } catch (err) {
         console.error(`[Queue] Failed to send ${task.senderName} (attempt ${attempt + 1}):`, err.message);
@@ -419,7 +428,8 @@ class BotManager {
           senderId: firstBotData.id,
           senderName: firstBotData.name,
           token: firstBotData.token,
-          content: firstReply
+          content: firstReply,
+          replyToId: message.id
         });
 
         await this.delay(this.randomDelay(300, 600));
@@ -439,12 +449,14 @@ class BotManager {
               );
 
               if (followReply && followReply.length > 0 && !this.isDuplicateMessage(followReply)) {
+                const followUpReplyTo = this.msgQueue.lastSentMessageId || message.id;
                 this.msgQueue.enqueue({
                   type: 'bot',
                   senderId: followUpData.id,
                   senderName: followUpData.name,
                   token: followUpData.token,
-                  content: followReply
+                  content: followReply,
+                  replyToId: followUpReplyTo
                 });
               }
             }

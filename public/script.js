@@ -207,7 +207,8 @@ async function saveSettings() {
     'ai_api_key', 'min_delay', 'max_delay',
     'typing_min', 'typing_max', 'max_length',
     'server_id', 'channel_id', 'custom_prompt',
-    'reaction_chance', 'reply_delay_min', 'reply_delay_max',
+    'reaction_chance', 'reply_chance',
+    'reply_delay_min', 'reply_delay_max',
     'follow_up_delay_min', 'follow_up_delay_max',
     'typing_pause_ms'
   ];
