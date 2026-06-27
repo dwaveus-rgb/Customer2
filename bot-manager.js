@@ -71,7 +71,6 @@ class MessageQueue {
     this.minGapBetweenMessages = 500;
     this.lastSendTime = 0;
     this.holdQueue = false;
-    this.lastSentMessageId = null;
   }
 
   enqueue(task) {
@@ -182,13 +181,12 @@ class MessageQueue {
     }
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const sent = await rawFetch(task.token, 'POST', `/channels/${liveChannelId}/messages`, body);
+        await rawFetch(task.token, 'POST', `/channels/${liveChannelId}/messages`, body);
         this.lastSenderId = task.senderId;
         this.lastSendTime = Date.now();
         this.bm.recentMessages.push({ sender: task.senderName, text: content, botId: task.senderId, timestamp: Date.now() });
         if (this.bm.recentMessages.length > this.bm.maxRecent) this.bm.recentMessages.shift();
         console.log(`[Queue] ${task.senderName}: ${content}`);
-        this.lastSentMessageId = sent?.id || null;
         return;
       } catch (err) {
         console.error(`[Queue] Failed to send ${task.senderName} (attempt ${attempt + 1}):`, err.message);
@@ -409,7 +407,9 @@ class BotManager {
       const firstBotIdx = Math.floor(Math.random() * eligibleBots.length);
       const firstBotData = eligibleBots[firstBotIdx][1].data;
 
-      await this.delay(this.randomDelay(200, 500));
+      const replyDelayMin = Math.max(200, parseInt(await db.getSetting('reply_delay_min') || '200'));
+      const replyDelayMax = Math.max(replyDelayMin + 100, parseInt(await db.getSetting('reply_delay_max') || '500'));
+      await this.delay(this.randomDelay(replyDelayMin, replyDelayMax));
 
       if (!this.bots.has(firstBotData.id)) return;
 
@@ -437,7 +437,9 @@ class BotManager {
           if (availableFollowUps.length > 0) {
             const followUpData = availableFollowUps[Math.floor(Math.random() * availableFollowUps.length)][1].data;
 
-            await this.delay(this.randomDelay(300, 800));
+            const followUpDelayMin = Math.max(300, parseInt(await db.getSetting('follow_up_delay_min') || '300'));
+            const followUpDelayMax = Math.max(followUpDelayMin + 100, parseInt(await db.getSetting('follow_up_delay_max') || '800'));
+            await this.delay(this.randomDelay(followUpDelayMin, followUpDelayMax));
 
             if (this.bots.has(followUpData.id)) {
               const followReply = await this.gemini.generateFollowUp(
@@ -447,14 +449,13 @@ class BotManager {
               );
 
               if (followReply && followReply.length > 0 && !this.isDuplicateMessage(followReply)) {
-                const followUpReplyTo = this.msgQueue.lastSentMessageId || message.id;
                 this.msgQueue.enqueue({
                   type: 'bot',
                   senderId: followUpData.id,
                   senderName: followUpData.name,
                   token: followUpData.token,
                   content: followReply,
-                  replyToId: followUpReplyTo
+                  replyToId: message.id
                 });
               }
             }

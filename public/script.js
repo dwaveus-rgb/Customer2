@@ -1,12 +1,26 @@
-// --- Tabs ---
+// --- Tabs with hash routing ---
+function switchTab(tabName) {
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  const btn = document.querySelector(`.nav-btn[data-tab="${tabName}"]`);
+  const tab = document.getElementById('tab-' + tabName);
+  if (btn) btn.classList.add('active');
+  if (tab) tab.classList.add('active');
+  history.replaceState(null, '', '/' + tabName);
+}
+
 document.querySelectorAll('.nav-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    btn.classList.add('active');
-    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
-  });
+  btn.addEventListener('click', () => switchTab(btn.dataset.tab));
 });
+
+function handleRoute() {
+  const path = location.pathname.replace(/^\//, '');
+  const validTabs = ['dashboard', 'bots', 'settings'];
+  switchTab(validTabs.includes(path) ? path : 'dashboard');
+}
+
+window.addEventListener('popstate', handleRoute);
+window.addEventListener('DOMContentLoaded', handleRoute);
 
 // --- Theme ---
 function toggleTheme() {
