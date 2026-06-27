@@ -6,7 +6,7 @@ class GeminiChat {
   constructor(apiKeys = []) {
     this.keys = Array.isArray(apiKeys) ? apiKeys.filter(Boolean) : [];
     this.clients = this.keys.map(key => new OpenAI({ apiKey: key, baseURL: BASE_URL }));
-    this.model = 'openrouter/free';
+    this.model = process.env.AI_MODEL || 'openrouter/free';
     this.currentIdx = 0;
     this.keyCooldowns = new Map();
     this.lastApiCall = 0;
