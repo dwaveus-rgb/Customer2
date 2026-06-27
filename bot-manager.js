@@ -73,6 +73,9 @@ class BotManager {
     this.offTopicStart = null;
     this.lastRedirectTime = 0;
     this.repliedMessages = new Set();
+    this.lastMemberMessage = 0;
+    this.isHandlingMember = false;
+    this.lastTimerBotId = null;
   }
 
   async init() {
@@ -124,10 +127,7 @@ class BotManager {
       this.starting?.delete(botData.id);
       this.bots.set(botData.id, { client, data: botData });
       this.cooldowns.set(botData.id, 0);
-
-      // Start continuous timer-based chatting + idle topic redirect
       this.scheduleActivity(botData.id);
-      this.scheduleIdleKick(botData.id);
     });
 
     setTimeout(async () => {
@@ -141,31 +141,31 @@ class BotManager {
 
     client.on(Events.MessageCreate, async (message) => {
       if (message.channel.id !== botData.channel_id) return;
-      if (message.author.bot) return;
 
-      // Only first bot pushes member messages (prevents duplicates)
-      const firstBotId = [...this.bots.keys()][0];
-      if (botData.id !== firstBotId) return;
+      // Member message — only first bot by Map key order processes it
+      if (!message.author.bot) {
+        const firstBotId = [...this.bots.keys()][0];
+        if (botData.id !== firstBotId) return;
 
-      const msgData = {
-        sender: message.author.username,
-        text: message.content,
-        botId: null,
-        id: message.id,
-        timestamp: Date.now()
-      };
-      this.recentMessages.push(msgData);
-      if (this.recentMessages.length > this.maxRecent) this.recentMessages.shift();
+        this.isHandlingMember = true;
+        this.lastMemberMessage = Date.now();
 
-      await this.handleMemberMessage(message, botData.channel_id);
-    });
+        const msgData = {
+          sender: message.author.username,
+          text: message.content,
+          botId: null,
+          id: message.id,
+          timestamp: Date.now()
+        };
+        this.recentMessages.push(msgData);
+        if (this.recentMessages.length > this.maxRecent) this.recentMessages.shift();
 
-    client.on(Events.MessageCreate, async (message) => {
-      if (message.channel.id !== botData.channel_id) return;
-      if (!message.author.bot) return;
+        await this.handleMemberMessage(message, botData.channel_id);
+        return;
+      }
+
+      // Other bot message
       if (message.author.id === client.user.id) return;
-
-      // Only first bot pushes other-bot messages (prevents duplicates)
       const firstBotId = [...this.bots.keys()][0];
       if (botData.id !== firstBotId) return;
 
@@ -184,15 +184,9 @@ class BotManager {
       console.error(`[BotManager] WebSocket error for ${botData.name}:`, err.message);
     });
 
-    client.on(Events.Debug, (msg) => {
-      if (msg.includes('Heartbeat') || msg.includes('Ready')) return;
-      console.log(`[BotManager] Debug ${botData.name}: ${msg}`);
-    });
-
     try {
       console.log(`[BotManager] Attempting login for "${botData.name}"...`);
       await client.login(botData.token);
-      console.log(`[BotManager] Login call succeeded for "${botData.name}", waiting for READY...`);
     } catch (err) {
       console.error(`[BotManager] Failed to start "${botData.name}": ${err.message}`);
       this.starting?.delete(botData.id);
@@ -201,15 +195,12 @@ class BotManager {
   }
 
   async handleMemberMessage(message, channelId) {
-    // Per-message lock: skip if this exact message is already being processed
     if (this.repliedMessages.has(message.id)) return;
     this.repliedMessages.add(message.id);
-    // Cap the set to prevent memory leak
     if (this.repliedMessages.size > 500) {
       const first = this.repliedMessages.values().next().value;
       this.repliedMessages.delete(first);
     }
-
     if (!this.gemini) return;
 
     try {
@@ -221,63 +212,21 @@ class BotManager {
       const replyDelayMax = parseInt(await db.getSetting('reply_delay_max') || '8000');
       const followUpDelayMin = parseInt(await db.getSetting('follow_up_delay_min') || '5000');
       const followUpDelayMax = parseInt(await db.getSetting('follow_up_delay_max') || '15000');
-      const offTopicTolerance = parseInt(await db.getSetting('off_topic_tolerance') || '5') * 60000;
-      const redirectCooldown = parseInt(await db.getSetting('redirect_cooldown') || '120') * 1000;
 
-      // Fire reaction in background (don't await)
       this.scheduleReaction(message, channelId, reactionChance).catch(() => {});
 
       const botEntries = [...this.bots.entries()];
       if (botEntries.length === 0) return;
 
-      // Check if conversation has drifted off-topic
-      const isOnTopic = await this.gemini.checkOnTopic(message.content, topic);
-      if (!isOnTopic) {
-        if (!this.offTopicStart) this.offTopicStart = Date.now();
-      } else {
-        this.offTopicStart = null;
+      // Pick first responder — exclude the bot that just posted via timer to avoid self-reply
+      let eligibleBots = botEntries;
+      if (this.lastTimerBotId) {
+        const filtered = botEntries.filter(([id]) => id !== this.lastTimerBotId);
+        if (filtered.length > 0) eligibleBots = filtered;
       }
+      const firstBotIdx = Math.floor(Math.random() * eligibleBots.length);
+      const firstBotData = eligibleBots[firstBotIdx][1].data;
 
-      // If off-topic too long, redirect instead of replying normally
-      const shouldRedirect = this.offTopicStart && (Date.now() - this.offTopicStart > offTopicTolerance);
-      const sinceLastRedirect = Date.now() - this.lastRedirectTime;
-      if (shouldRedirect && sinceLastRedirect > redirectCooldown) {
-        const redirectBotEntry = botEntries[Math.floor(Math.random() * botEntries.length)];
-        const redirectBot = redirectBotEntry[1].data;
-
-        if (this.bots.has(redirectBot.id)) {
-          const redirectDelay = this.randomDelay(replyDelayMin, replyDelayMax);
-          await this.delay(redirectDelay);
-
-          const redirectMsg = await this.gemini.generateRedirect(
-            redirectBot.name, redirectBot.personality, topic, customPrompt,
-            this.recentMessages.slice(-10), maxLen
-          );
-
-          if (redirectMsg && redirectMsg.length > 0 && !this.isDuplicateMessage(redirectMsg)) {
-            const typingDuration = this.randomDelay(
-              parseInt(await db.getSetting('typing_min') || '3000'),
-              parseInt(await db.getSetting('typing_max') || '8000')
-            );
-            await this.simulateTyping(redirectBot.token, channelId, typingDuration);
-            await rawFetch(redirectBot.token, 'POST', `/channels/${channelId}/messages`, { content: redirectMsg });
-            this.globalLastMessage = Date.now();
-            this.recentMessages.push({ sender: redirectBot.name, text: redirectMsg, botId: redirectBot.id, timestamp: Date.now() });
-            if (this.recentMessages.length > this.maxRecent) this.recentMessages.shift();
-            console.log(`[BotManager] ${redirectBot.name} (redirect): ${redirectMsg}`);
-            this.lastRedirectTime = Date.now();
-            this.offTopicStart = null;
-          }
-        }
-        return;
-      }
-
-      // Pick first responder — pick a random bot, not always the first
-      const firstBotIdx = Math.floor(Math.random() * botEntries.length);
-      const firstBotEntry = botEntries[firstBotIdx];
-      const firstBotData = firstBotEntry[1].data;
-
-      // First responder replies after short delay
       const replyDelay = this.randomDelay(replyDelayMin, replyDelayMax);
       await this.delay(replyDelay);
 
@@ -302,12 +251,11 @@ class BotManager {
         console.log(`[BotManager] ${firstBotData.name}: ${firstReply}`);
       }
 
-      // Follow-up bot responds to the MEMBER's message (not just the first bot's reply)
+      // Follow-up bot responds to the member's message
       if (botEntries.length > 1) {
-        const availableFollowUps = botEntries.filter(([id]) => id !== firstBotData.id);
+        const availableFollowUps = botEntries.filter(([id]) => id !== firstBotData.id && id !== this.lastTimerBotId);
         if (availableFollowUps.length > 0) {
-          const followUpEntry = availableFollowUps[Math.floor(Math.random() * availableFollowUps.length)];
-          const followUpData = followUpEntry[1].data;
+          const followUpData = availableFollowUps[Math.floor(Math.random() * availableFollowUps.length)][1].data;
 
           const followDelay = this.randomDelay(followUpDelayMin, followUpDelayMax);
           await this.delay(followDelay);
@@ -336,6 +284,9 @@ class BotManager {
       }
     } catch (err) {
       console.error(`[BotManager] Message handling error: ${err.message}`);
+    } finally {
+      this.isHandlingMember = false;
+      this.lastTimerBotId = null;
     }
   }
 
@@ -345,7 +296,6 @@ class BotManager {
     for (const msg of recent) {
       const msgLower = msg.text.toLowerCase().trim();
       if (msgLower === lower) return true;
-      // Check if one contains the other (for partial duplicates)
       if (lower.length > 20 && msgLower.includes(lower)) return true;
       if (msgLower.length > 20 && lower.includes(msgLower)) return true;
     }
@@ -359,8 +309,8 @@ class BotManager {
       const entry = this.bots.get(botId);
       const botData = entry.data;
 
-      const minCooldown = parseInt(await db.getSetting('min_delay') || '8000');
-      const maxCooldown = parseInt(await db.getSetting('max_delay') || '25000');
+      const minCooldown = parseInt(await db.getSetting('min_delay') || '15000');
+      const maxCooldown = parseInt(await db.getSetting('max_delay') || '45000');
       const now = Date.now();
       const botCooldown = this.cooldowns.get(botId) || 0;
 
@@ -369,8 +319,21 @@ class BotManager {
         return;
       }
 
-      // Global gap: at least 8 seconds between ANY bot messages
-      const globalMinGap = 8000;
+      // Pause timer chat for 60 seconds after a member message
+      const timeSinceMemberMsg = now - this.lastMemberMessage;
+      if (timeSinceMemberMsg < 60000) {
+        setTimeout(runChat, 60000 - timeSinceMemberMsg + 5000);
+        return;
+      }
+
+      // Don't send while handling a member message
+      if (this.isHandlingMember) {
+        setTimeout(runChat, 5000);
+        return;
+      }
+
+      // Global gap: at least 10 seconds between ANY bot messages
+      const globalMinGap = 10000;
       if (now - this.globalLastMessage < globalMinGap) {
         setTimeout(runChat, globalMinGap + 2000);
         return;
@@ -391,7 +354,6 @@ class BotManager {
           this.recentMessages.slice(-10), maxLen, customPrompt
         );
 
-        // Skip if reply is duplicate of recent messages
         if (!reply || reply.length === 0 || this.isDuplicateMessage(reply)) {
           if (this.bots.has(botId)) {
             setTimeout(runChat, this.randomDelay(minCooldown, maxCooldown));
@@ -403,6 +365,7 @@ class BotManager {
         await rawFetch(botData.token, 'POST', `/channels/${botData.channel_id}/messages`, { content: reply });
 
         this.globalLastMessage = Date.now();
+        this.lastTimerBotId = botId;
         const cooldownTime = Date.now() + this.randomDelay(minCooldown, maxCooldown);
         this.cooldowns.set(botId, cooldownTime);
 
@@ -414,21 +377,17 @@ class BotManager {
       }
 
       if (this.bots.has(botId)) {
-        const nextDelay = this.randomDelay(
-          parseInt(await db.getSetting('min_delay') || '8000'),
-          parseInt(await db.getSetting('max_delay') || '25000')
-        );
+        const nextDelay = this.randomDelay(minCooldown, maxCooldown);
         setTimeout(runChat, nextDelay);
       }
     };
 
-    const initialDelay = this.randomDelay(10000, 25000);
+    const initialDelay = this.randomDelay(15000, 30000);
     setTimeout(runChat, initialDelay);
   }
 
   async scheduleReaction(message, channelId, reactionChance) {
     if (Math.random() * 100 > reactionChance) return;
-
     const botEntries = [...this.bots.entries()];
     if (botEntries.length === 0) return;
 
@@ -443,60 +402,7 @@ class BotManager {
       const encodedEmoji = encodeURIComponent(emoji);
       await rawFetch(entry.data.token, 'PUT', `/channels/${channelId}/messages/${message.id}/reactions/${encodedEmoji}/@me`);
       console.log(`[BotManager] ${entry.data.name} reacted ${emoji} to ${message.author.username}`);
-    } catch (err) {
-      // Reactions may fail silently, that's fine
-    }
-  }
-
-  async scheduleIdleKick(botId) {
-    const runIdleKick = async () => {
-      if (!this.bots.has(botId)) return;
-
-      const idleMinutes = parseInt(await db.getSetting('idle_kick_minutes') || '30');
-      const lastMsg = this.recentMessages[this.recentMessages.length - 1];
-      const timeSinceLastMsg = lastMsg ? Date.now() - (lastMsg.timestamp || Date.now()) : 0;
-
-      if (timeSinceLastMsg < idleMinutes * 60000 && this.recentMessages.length > 0) {
-        if (this.bots.has(botId)) {
-          setTimeout(runIdleKick, 60000);
-        }
-        return;
-      }
-
-      const entry = this.bots.get(botId);
-      if (!entry) return;
-
-      const topic = await db.getSetting('topic') || 'general conversation';
-      const customPrompt = await db.getSetting('custom_prompt') || '';
-      const maxLen = parseInt(await db.getSetting('max_length') || '200');
-
-      try {
-        const redirect = await this.gemini.generateRedirect(
-          entry.data.name, entry.data.personality, topic, customPrompt,
-          this.recentMessages.slice(-10), maxLen
-        );
-        if (redirect && redirect.length > 0) {
-          const typingDuration = this.randomDelay(
-            parseInt(await db.getSetting('typing_min') || '3000'),
-            parseInt(await db.getSetting('typing_max') || '8000')
-          );
-          await this.simulateTyping(entry.data.token, entry.data.channel_id, typingDuration);
-          await rawFetch(entry.data.token, 'POST', `/channels/${entry.data.channel_id}/messages`, { content: redirect });
-          this.globalLastMessage = Date.now();
-          this.recentMessages.push({ sender: entry.data.name, text: redirect, botId: entry.data.id, timestamp: Date.now() });
-          if (this.recentMessages.length > this.maxRecent) this.recentMessages.shift();
-          console.log(`[BotManager] ${entry.data.name} (topic redirect): ${redirect}`);
-        }
-      } catch (err) {
-        console.error(`[BotManager] Idle kick error for ${entry.data.name}: ${err.message}`);
-      }
-
-      if (this.bots.has(botId)) {
-        setTimeout(runIdleKick, this.randomDelay(300000, 600000));
-      }
-    };
-
-    setTimeout(runIdleKick, this.randomDelay(60000, 180000));
+    } catch (err) {}
   }
 
   async stopBot(botId) {
