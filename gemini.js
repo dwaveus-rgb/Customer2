@@ -1,5 +1,15 @@
 const OpenAI = require('openai');
 
+let lastApiCall = 0;
+const API_MIN_GAP = 4000;
+
+async function rateLimitWait() {
+  const now = Date.now();
+  const wait = API_MIN_GAP - (now - lastApiCall);
+  if (wait > 0) await new Promise(r => setTimeout(r, wait));
+  lastApiCall = Date.now();
+}
+
 class GeminiChat {
   constructor(apiKey) {
     this.apiKey = apiKey;
@@ -19,12 +29,13 @@ class GeminiChat {
     console.log('[Gemini] API key', key ? 'updated' : 'cleared');
   }
 
-  async chat(systemPrompt, maxTokens = 50, retries = 2) {
+  async chat(systemPrompt, maxTokens = 50, retries = 3) {
     if (!this.client) {
       console.error('[OpenRouter] No client - API key not set');
       return null;
     }
     for (let attempt = 0; attempt <= retries; attempt++) {
+      await rateLimitWait();
       try {
         const result = await this.client.chat.completions.create({
           model: this.model,
@@ -39,9 +50,10 @@ class GeminiChat {
         return result.choices[0]?.message?.content?.trim() || null;
       } catch (err) {
         if (err.status === 429 && attempt < retries) {
-          const wait = (attempt + 1) * 10000;
+          const wait = Math.min((attempt + 1) * 15000, 45000);
           console.warn(`[OpenRouter] Rate limited, retrying in ${wait / 1000}s (attempt ${attempt + 1}/${retries})`);
           await new Promise(r => setTimeout(r, wait));
+          lastApiCall = Date.now();
           continue;
         }
         console.error('[OpenRouter Error]', err.message, err.status || '');
