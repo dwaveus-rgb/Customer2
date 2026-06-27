@@ -60,6 +60,187 @@ async function rawFetch(token, method, path, body) {
   return res.json();
 }
 
+class MessageQueue {
+  constructor(botManager) {
+    this.bm = botManager;
+    this.queue = [];
+    this.processing = false;
+    this.lastSenderId = null;
+    this.currentBotTyping = null;
+    this.typingAbort = null;
+    this.minGapBetweenMessages = 8000;
+    this.lastSendTime = 0;
+  }
+
+  enqueue(task) {
+    this.queue.push(task);
+    this.processQueue().catch(err => {
+      console.error('[Queue] processQueue error:', err.message);
+    });
+  }
+
+  enqueueFront(task) {
+    this.queue.unshift(task);
+    this.processQueue().catch(err => {
+      console.error('[Queue] processQueue error:', err.message);
+    });
+  }
+
+  async pauseCurrentTyping() {
+    if (this.typingAbort) {
+      this.typingAbort.abort();
+      this.typingAbort = null;
+      this.currentBotTyping = null;
+      const pauseMs = parseInt(await db.getSetting('typing_pause_ms') || '500');
+      console.log(`[Queue] Typing paused for ${pauseMs}ms`);
+      await new Promise(r => setTimeout(r, pauseMs));
+    }
+  }
+
+  clearQueue(filterFn) {
+    if (filterFn) {
+      this.queue = this.queue.filter(task => !filterFn(task));
+    } else {
+      this.queue = [];
+    }
+  }
+
+  async processQueue() {
+    if (this.processing) return;
+    this.processing = true;
+
+    while (this.queue.length > 0) {
+      const task = this.queue[0];
+
+      if (task.type === 'member') {
+        this.queue.shift();
+        await this.sendTask(task);
+        continue;
+      }
+
+      if (task.type === 'bot' && task.senderId === this.lastSenderId) {
+        if (this.botsWithOtherOptions(task.senderId)) {
+          console.log(`[Queue] ${task.senderName} waiting turn (same as last sender)`);
+          await this.delay(3000);
+          continue;
+        }
+      }
+
+      const now = Date.now();
+      const waitMs = this.minGapBetweenMessages - (now - this.lastSendTime);
+      if (waitMs > 0) {
+        console.log(`[Queue] Waiting ${waitMs}ms gap between messages`);
+        await this.delay(waitMs);
+      }
+
+      this.queue.shift();
+      await this.sendTask(task);
+    }
+
+    this.processing = false;
+  }
+
+  botsWithOtherOptions(senderId) {
+    for (const task of this.queue) {
+      if (task.type === 'bot' && task.senderId !== senderId) return true;
+    }
+    return false;
+  }
+
+  async sendTask(task) {
+    const liveChannelId = await db.getSetting('channel_id');
+    if (!liveChannelId) return;
+
+    if (task.type === 'member') {
+      try {
+        await rawFetch(task.token, 'POST', `/channels/${liveChannelId}/messages`, { content: task.content });
+        this.lastSenderId = 'member';
+        this.lastSendTime = Date.now();
+        this.bm.recentMessages.push({ sender: task.senderName, text: task.content, botId: null, timestamp: Date.now() });
+        if (this.bm.recentMessages.length > this.bm.maxRecent) this.bm.recentMessages.shift();
+        console.log(`[Queue] MEMBER ${task.senderName}: ${task.content}`);
+      } catch (err) {
+        console.error(`[Queue] Failed to send member msg:`, err.message);
+      }
+      return;
+    }
+
+    if (task.type === 'bot') {
+      if (task.senderId === this.lastSenderId && this.botsWithOtherOptions(task.senderId)) {
+        this.queue.unshift(task);
+        await this.delay(3000);
+        return;
+      }
+
+      const typingDuration = this.bm.randomDelay(
+        parseInt(await db.getSetting('typing_min') || '3000'),
+        parseInt(await db.getSetting('typing_max') || '8000')
+      );
+
+      const abort = new AbortController();
+      this.currentBotTyping = task.senderId;
+      this.typingAbort = abort;
+
+      try {
+        console.log(`[Queue] ${task.senderName} typing (${typingDuration}ms)...`);
+        await this.simulateTypingWithAbort(task.token, liveChannelId, typingDuration, abort.signal);
+      } catch (e) {
+        if (e.name === 'AbortError') {
+          console.log(`[Queue] ${task.senderName} typing aborted by member message`);
+          this.queue.unshift(task);
+          return;
+        }
+        return;
+      }
+
+      this.currentBotTyping = null;
+      this.typingAbort = null;
+
+      try {
+        const content = task.content || task.fallbackContent;
+        await rawFetch(task.token, 'POST', `/channels/${liveChannelId}/messages`, { content });
+        this.lastSenderId = task.senderId;
+        this.lastSendTime = Date.now();
+        this.bm.recentMessages.push({ sender: task.senderName, text: content, botId: task.senderId, timestamp: Date.now() });
+        if (this.bm.recentMessages.length > this.bm.maxRecent) this.bm.recentMessages.shift();
+        console.log(`[Queue] ${task.senderName}: ${content}`);
+      } catch (err) {
+        console.error(`[Queue] Failed to send ${task.senderName}:`, err.message);
+      }
+    }
+  }
+
+  simulateTypingWithAbort(token, channelId, duration, signal) {
+    return new Promise(async (resolve, reject) => {
+      const onAbort = () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+      signal.addEventListener('abort', onAbort, { once: true });
+
+      try {
+        await rawFetch(token, 'POST', `/channels/${channelId}/typing`);
+        let remaining = duration;
+        while (remaining > 10000) {
+          if (signal.aborted) break;
+          await new Promise(r => setTimeout(r, 10000));
+          remaining -= 10000;
+          try { await rawFetch(token, 'POST', `/channels/${channelId}/typing`); } catch (e) { break; }
+        }
+        if (!signal.aborted && remaining > 0) {
+          await new Promise(r => setTimeout(r, remaining));
+        }
+        resolve();
+      } catch (e) {
+        reject(e);
+      } finally {
+        signal.removeEventListener('abort', onAbort);
+      }
+    });
+  }
+
+  delay(ms) {
+    return new Promise(r => setTimeout(r, ms));
+  }
+}
+
 class BotManager {
   constructor() {
     this.bots = new Map();
@@ -68,14 +249,10 @@ class BotManager {
     this.maxRecent = 20;
     this.isRunning = false;
     this.cooldowns = new Map();
-    this.globalLastMessage = 0;
     this.ready = false;
-    this.offTopicStart = null;
-    this.lastRedirectTime = 0;
     this.repliedMessages = new Set();
     this.lastMemberMessage = 0;
-    this.isHandlingMember = false;
-    this.lastTimerBotId = null;
+    this.msgQueue = new MessageQueue(this);
   }
 
   async init() {
@@ -141,15 +318,19 @@ class BotManager {
 
     client.on(Events.MessageCreate, async (message) => {
       const liveChannelId = await db.getSetting('channel_id');
-      if (message.channel.id !== liveChannelId) return;
+      if (!liveChannelId || message.channel.id !== liveChannelId) return;
 
-      // Member message — only first bot by Map key order processes it
       if (!message.author.bot) {
         const firstBotId = [...this.bots.keys()][0];
         if (botData.id !== firstBotId) return;
 
-        this.isHandlingMember = true;
         this.lastMemberMessage = Date.now();
+
+        this.repliedMessages.add(message.id);
+        if (this.repliedMessages.size > 500) {
+          const first = this.repliedMessages.values().next().value;
+          this.repliedMessages.delete(first);
+        }
 
         const msgData = {
           sender: message.author.username,
@@ -165,7 +346,6 @@ class BotManager {
         return;
       }
 
-      // Other bot message
       if (message.author.id === client.user.id) return;
       const firstBotId = [...this.bots.keys()][0];
       if (botData.id !== firstBotId) return;
@@ -196,98 +376,84 @@ class BotManager {
   }
 
   async handleMemberMessage(message, channelId) {
-    if (this.repliedMessages.has(message.id)) return;
-    this.repliedMessages.add(message.id);
-    if (this.repliedMessages.size > 500) {
-      const first = this.repliedMessages.values().next().value;
-      this.repliedMessages.delete(first);
-    }
     if (!this.gemini) return;
 
-    try {
-      const topic = await db.getSetting('topic') || 'general conversation';
-      const customPrompt = await db.getSetting('custom_prompt') || '';
-      const maxLen = parseInt(await db.getSetting('max_length') || '200');
-      const reactionChance = parseInt(await db.getSetting('reaction_chance') || '20');
-      const replyDelayMin = parseInt(await db.getSetting('reply_delay_min') || '2000');
-      const replyDelayMax = parseInt(await db.getSetting('reply_delay_max') || '8000');
-      const followUpDelayMin = parseInt(await db.getSetting('follow_up_delay_min') || '5000');
-      const followUpDelayMax = parseInt(await db.getSetting('follow_up_delay_max') || '15000');
+    await this.msgQueue.pauseCurrentTyping();
 
-      this.scheduleReaction(message, channelId, reactionChance).catch(() => {});
+    this.msgQueue.clearQueue(task => task.type === 'bot');
 
-      const botEntries = [...this.bots.entries()];
-      if (botEntries.length === 0) return;
+    const reactionChance = parseInt(await db.getSetting('reaction_chance') || '20');
+    this.scheduleReaction(message, channelId, reactionChance).catch(() => {});
 
-      // Pick first responder — exclude the bot that just posted via timer to avoid self-reply
-      let eligibleBots = botEntries;
-      if (this.lastTimerBotId) {
-        const filtered = botEntries.filter(([id]) => id !== this.lastTimerBotId);
-        if (filtered.length > 0) eligibleBots = filtered;
-      }
-      const firstBotIdx = Math.floor(Math.random() * eligibleBots.length);
-      const firstBotData = eligibleBots[firstBotIdx][1].data;
+    const botEntries = [...this.bots.entries()];
+    if (botEntries.length === 0) return;
 
-      const replyDelay = this.randomDelay(replyDelayMin, replyDelayMax);
-      await this.delay(replyDelay);
+    const topic = await db.getSetting('topic') || 'general conversation';
+    const customPrompt = await db.getSetting('custom_prompt') || '';
+    const maxLen = parseInt(await db.getSetting('max_length') || '200');
 
-      if (!this.bots.has(firstBotData.id)) return;
+    const replyDelayMin = parseInt(await db.getSetting('reply_delay_min') || '2000');
+    const replyDelayMax = parseInt(await db.getSetting('reply_delay_max') || '8000');
+    const followUpDelayMin = parseInt(await db.getSetting('follow_up_delay_min') || '5000');
+    const followUpDelayMax = parseInt(await db.getSetting('follow_up_delay_max') || '15000');
 
-      const firstReply = await this.gemini.generateReplyToMessage(
-        firstBotData.name, firstBotData.personality, topic, customPrompt,
-        message.author.username, message.content,
-        this.recentMessages.slice(-10), maxLen
-      );
+    let eligibleBots = botEntries;
+    if (this.msgQueue.lastSenderId) {
+      const filtered = botEntries.filter(([id]) => id !== this.msgQueue.lastSenderId);
+      if (filtered.length > 0) eligibleBots = filtered;
+    }
+    const firstBotIdx = Math.floor(Math.random() * eligibleBots.length);
+    const firstBotData = eligibleBots[firstBotIdx][1].data;
 
-      if (firstReply && firstReply.length > 0 && !this.isDuplicateMessage(firstReply)) {
-        const typingDuration = this.randomDelay(
-          parseInt(await db.getSetting('typing_min') || '3000'),
-          parseInt(await db.getSetting('typing_max') || '8000')
+    const replyDelay = this.randomDelay(replyDelayMin, replyDelayMax);
+    await this.delay(replyDelay);
+
+    if (!this.bots.has(firstBotData.id)) return;
+
+    const firstReply = await this.gemini.generateReplyToMessage(
+      firstBotData.name, firstBotData.personality, topic, customPrompt,
+      message.author.username, message.content,
+      this.recentMessages.slice(-10), maxLen
+    );
+
+    if (firstReply && firstReply.length > 0 && !this.isDuplicateMessage(firstReply)) {
+      this.msgQueue.enqueue({
+        type: 'bot',
+        senderId: firstBotData.id,
+        senderName: firstBotData.name,
+        token: firstBotData.token,
+        content: firstReply,
+        fallbackContent: firstReply
+      });
+    }
+
+    if (botEntries.length > 1) {
+      const availableFollowUps = botEntries.filter(([id]) => id !== firstBotData.id);
+      if (availableFollowUps.length > 0) {
+        const followUpData = availableFollowUps[Math.floor(Math.random() * availableFollowUps.length)][1].data;
+
+        const followDelay = this.randomDelay(followUpDelayMin, followUpDelayMax);
+        await this.delay(followDelay);
+
+        if (!this.bots.has(followUpData.id)) return;
+
+        const followReply = await this.gemini.generateFollowUp(
+          followUpData.name, followUpData.personality, topic, customPrompt,
+          message.author.username, message.content,
+          this.recentMessages.slice(-10), maxLen
         );
-        await this.simulateTyping(firstBotData.token, channelId, typingDuration);
-        await rawFetch(firstBotData.token, 'POST', `/channels/${channelId}/messages`, { content: firstReply });
-        this.globalLastMessage = Date.now();
-        this.recentMessages.push({ sender: firstBotData.name, text: firstReply, botId: firstBotData.id, timestamp: Date.now() });
-        if (this.recentMessages.length > this.maxRecent) this.recentMessages.shift();
-        console.log(`[BotManager] ${firstBotData.name}: ${firstReply}`);
-      }
 
-      // Follow-up bot responds to the member's message
-      if (botEntries.length > 1) {
-        const availableFollowUps = botEntries.filter(([id]) => id !== firstBotData.id && id !== this.lastTimerBotId);
-        if (availableFollowUps.length > 0) {
-          const followUpData = availableFollowUps[Math.floor(Math.random() * availableFollowUps.length)][1].data;
-
-          const followDelay = this.randomDelay(followUpDelayMin, followUpDelayMax);
-          await this.delay(followDelay);
-
-          if (!this.bots.has(followUpData.id)) return;
-
-          const followReply = await this.gemini.generateFollowUp(
-            followUpData.name, followUpData.personality, topic, customPrompt,
-            message.author.username, message.content,
-            this.recentMessages.slice(-10), maxLen
-          );
-
-          if (followReply && followReply.length > 0 && !this.isDuplicateMessage(followReply)) {
-            const typingDuration = this.randomDelay(
-              parseInt(await db.getSetting('typing_min') || '3000'),
-              parseInt(await db.getSetting('typing_max') || '8000')
-            );
-            await this.simulateTyping(followUpData.token, channelId, typingDuration);
-            await rawFetch(followUpData.token, 'POST', `/channels/${channelId}/messages`, { content: followReply });
-            this.globalLastMessage = Date.now();
-            this.recentMessages.push({ sender: followUpData.name, text: followReply, botId: followUpData.id, timestamp: Date.now() });
-            if (this.recentMessages.length > this.maxRecent) this.recentMessages.shift();
-            console.log(`[BotManager] ${followUpData.name}: ${followReply}`);
-          }
+        if (followReply && followReply.length > 0 && !this.isDuplicateMessage(followReply)) {
+          this.msgQueue.enqueue({
+            type: 'bot',
+            senderId: followUpData.id,
+            senderName: followUpData.name,
+            token: followUpData.token,
+            content: followReply,
+            fallbackContent: followReply
+          });
         }
       }
-    } catch (err) {
-      console.error(`[BotManager] Message handling error: ${err.message}`);
-    } finally {
-      this.isHandlingMember = false;
-      this.lastTimerBotId = null;
     }
   }
 
@@ -319,42 +485,22 @@ class BotManager {
       const botCooldown = this.cooldowns.get(botId) || 0;
 
       if (now < botCooldown) {
-        console.log(`[BotManager] ${botData.name} cooldown active, waiting ${botCooldown - now}ms`);
         setTimeout(runChat, botCooldown - now + 1000);
         return;
       }
 
-      // Pause timer chat for 60 seconds after a member message
       const timeSinceMemberMsg = now - this.lastMemberMessage;
       if (this.lastMemberMessage > 0 && timeSinceMemberMsg < 60000) {
-        console.log(`[BotManager] ${botData.name} pausing, member msg ${timeSinceMemberMsg}ms ago`);
         setTimeout(runChat, 60000 - timeSinceMemberMsg + 5000);
         return;
       }
 
-      // Don't send while handling a member message
-      if (this.isHandlingMember) {
-        console.log(`[BotManager] ${botData.name} pausing, handling member message`);
-        setTimeout(runChat, 5000);
-        return;
-      }
-
-      // Global gap: at least 10 seconds between ANY bot messages
-      const globalMinGap = 10000;
-      if (now - this.globalLastMessage < globalMinGap) {
-        console.log(`[BotManager] ${botData.name} pausing, global gap active`);
-        setTimeout(runChat, globalMinGap + 2000);
+      if (this.msgQueue.lastSenderId === botId) {
+        setTimeout(runChat, this.randomDelay(3000, 6000));
         return;
       }
 
       try {
-        console.log(`[BotManager] ${botData.name} generating reply...`);
-        const liveChannelId = await db.getSetting('channel_id');
-        const typingDuration = this.randomDelay(
-          parseInt(await db.getSetting('typing_min') || '3000'),
-          parseInt(await db.getSetting('typing_max') || '8000')
-        );
-
         const topic = await db.getSetting('topic') || 'general conversation';
         const maxLen = parseInt(await db.getSetting('max_length') || '200');
         const customPrompt = await db.getSetting('custom_prompt') || '';
@@ -364,29 +510,26 @@ class BotManager {
           this.recentMessages.slice(-10), maxLen, customPrompt
         );
 
-        console.log(`[BotManager] ${botData.name} got reply: ${reply ? reply.slice(0, 50) : 'NULL'}`);
-
         if (!reply || reply.length === 0 || this.isDuplicateMessage(reply)) {
-          console.log(`[BotManager] ${botData.name} reply skipped (empty/duplicate)`);
           if (this.bots.has(botId)) {
             setTimeout(runChat, this.randomDelay(minCooldown, maxCooldown));
           }
           return;
         }
 
-        await this.simulateTyping(botData.token, liveChannelId, typingDuration);
-        await rawFetch(botData.token, 'POST', `/channels/${liveChannelId}/messages`, { content: reply });
+        this.msgQueue.enqueue({
+          type: 'bot',
+          senderId: botData.id,
+          senderName: botData.name,
+          token: botData.token,
+          content: reply,
+          fallbackContent: reply
+        });
 
-        this.globalLastMessage = Date.now();
-        this.lastTimerBotId = botId;
         const cooldownTime = Date.now() + this.randomDelay(minCooldown, maxCooldown);
         this.cooldowns.set(botId, cooldownTime);
-
-        this.recentMessages.push({ sender: botData.name, text: reply, botId: botData.id, timestamp: Date.now() });
-        if (this.recentMessages.length > this.maxRecent) this.recentMessages.shift();
-        console.log(`[BotManager] ${botData.name}: ${reply}`);
       } catch (err) {
-        console.error(`[BotManager] Chat error for ${botData.name}:`, err.message, err.stack?.slice(0, 200));
+        console.error(`[BotManager] Chat error for ${botData.name}:`, err.message);
       }
 
       if (this.bots.has(botId)) {
@@ -430,25 +573,11 @@ class BotManager {
   }
 
   async stopAll() {
+    this.msgQueue.clearQueue();
     const ids = [...this.bots.keys()];
     for (const id of ids) {
       await this.stopBot(id);
     }
-  }
-
-  async simulateTyping(token, channelId, duration) {
-    try {
-      await rawFetch(token, 'POST', `/channels/${channelId}/typing`);
-      let remaining = duration;
-      while (remaining > 10000) {
-        await new Promise(r => setTimeout(r, 10000));
-        remaining -= 10000;
-        try { await rawFetch(token, 'POST', `/channels/${channelId}/typing`); } catch (e) { return; }
-      }
-      if (remaining > 0) {
-        await new Promise(r => setTimeout(r, remaining));
-      }
-    } catch (e) {}
   }
 
   randomDelay(min, max) {

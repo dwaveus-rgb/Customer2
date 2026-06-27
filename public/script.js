@@ -183,7 +183,8 @@ async function saveSettings() {
     'server_id', 'channel_id', 'custom_prompt',
     'reaction_chance', 'reply_delay_min', 'reply_delay_max',
     'follow_up_delay_min', 'follow_up_delay_max',
-    'off_topic_tolerance', 'redirect_cooldown', 'idle_kick_minutes'
+    'off_topic_tolerance', 'redirect_cooldown', 'idle_kick_minutes',
+    'typing_pause_ms'
   ];
   const payload = {};
   for (const f of fields) {

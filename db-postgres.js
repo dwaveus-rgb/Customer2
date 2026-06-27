@@ -62,7 +62,8 @@ async function ensureTables() {
             follow_up_delay_max: '15000',
             off_topic_tolerance: '5',
             redirect_cooldown: '120',
-            idle_kick_minutes: '30'
+            idle_kick_minutes: '30',
+            typing_pause_ms: '500'
           };
 
           for (const [key, value] of Object.entries(defaults)) {
