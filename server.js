@@ -24,9 +24,11 @@ app.put('/api/settings', async (req, res) => {
   try {
     const settings = req.body;
     for (const [key, value] of Object.entries(settings)) {
-      await db.setSetting(key, value);
+      if (value !== '' && value !== undefined && value !== null) {
+        await db.setSetting(key, value);
+      }
     }
-    if (settings.ai_api_key) await botManager.updateGeminiKey();
+    if (settings.ai_api_key && settings.ai_api_key !== '') await botManager.updateGeminiKey();
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

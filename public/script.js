@@ -179,17 +179,20 @@ async function updateTopic() {
 async function saveSettings() {
   const fields = [
     'ai_api_key', 'min_delay', 'max_delay',
-    'typing_min', 'typing_max', 'max_length', 'topic_change_interval',
+    'typing_min', 'typing_max', 'max_length',
     'server_id', 'channel_id', 'custom_prompt',
     'reaction_chance', 'reply_delay_min', 'reply_delay_max',
     'follow_up_delay_min', 'follow_up_delay_max',
-    'off_topic_tolerance', 'redirect_cooldown', 'idle_kick_minutes',
     'typing_pause_ms'
   ];
   const payload = {};
   for (const f of fields) {
     const el = document.getElementById('set-' + f);
-    if (el) payload[f] = el.value;
+    if (el && el.value !== '') payload[f] = el.value;
+  }
+  if (Object.keys(payload).length === 0) {
+    alert('No settings to save');
+    return;
   }
   const res = await fetch('/api/settings', {
     method: 'PUT',
@@ -199,6 +202,9 @@ async function saveSettings() {
   const data = await res.json();
   if (data.success) {
     alert('Settings saved!');
+    loadSettings();
+  } else {
+    alert('Error: ' + (data.error || 'Unknown'));
   }
 }
 
