@@ -68,7 +68,7 @@ class MessageQueue {
     this.lastSenderId = null;
     this.currentBotTyping = null;
     this.typingAbort = null;
-    this.minGapBetweenMessages = 3000;
+    this.minGapBetweenMessages = 2000;
     this.lastSendTime = 0;
     this.holdQueue = false;
   }
@@ -483,8 +483,8 @@ class BotManager {
       const entry = this.bots.get(botId);
       const botData = entry.data;
 
-      const minCooldown = Math.max(5000, parseInt(await db.getSetting('min_delay') || '8000'));
-      const maxCooldown = Math.max(minCooldown + 2000, parseInt(await db.getSetting('max_delay') || '20000'));
+      const minCooldown = Math.max(3000, parseInt(await db.getSetting('min_delay') || '5000'));
+      const maxCooldown = Math.max(minCooldown + 1000, parseInt(await db.getSetting('max_delay') || '12000'));
       const now = Date.now();
       const botCooldown = this.cooldowns.get(botId) || 0;
 
@@ -494,24 +494,24 @@ class BotManager {
       }
 
       const timeSinceMemberMsg = now - this.lastMemberMessage;
-      if (this.lastMemberMessage > 0 && timeSinceMemberMsg < 15000) {
-        setTimeout(runChat, 15000 - timeSinceMemberMsg + 2000);
+      if (this.lastMemberMessage > 0 && timeSinceMemberMsg < 8000) {
+        setTimeout(runChat, 8000 - timeSinceMemberMsg + 1000);
         return;
       }
 
       if (this.msgQueue.holdQueue) {
-        setTimeout(runChat, 5000);
+        setTimeout(runChat, 2000);
         return;
       }
 
       if (this.memberHandling) {
-        setTimeout(runChat, 5000);
+        setTimeout(runChat, 2000);
         return;
       }
 
       const lastSender = this.msgQueue.lastSenderId;
       if (lastSender && String(lastSender) === String(botId)) {
-        setTimeout(runChat, this.randomDelay(3000, 6000));
+        setTimeout(runChat, this.randomDelay(2000, 4000));
         return;
       }
 
@@ -553,7 +553,7 @@ class BotManager {
       }
     };
 
-    const initialDelay = this.randomDelay(3000, 8000);
+    const initialDelay = this.randomDelay(1000, 3000);
     console.log(`[BotManager] scheduleActivity started for ${botId}, initial delay ${initialDelay}ms`);
     setTimeout(runChat, initialDelay);
   }

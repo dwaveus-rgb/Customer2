@@ -3,7 +3,7 @@ const OpenAI = require('openai');
 const FALLBACK_API_KEY = process.env.AI_API_KEY_FALLBACK || '';
 
 let lastApiCall = 0;
-const API_MIN_GAP = 4000;
+const API_MIN_GAP = 1500;
 
 async function rateLimitWait() {
   const now = Date.now();
@@ -69,7 +69,7 @@ class GeminiChat {
             continue;
           }
           if (attempt < retries) {
-            const wait = Math.min((attempt + 1) * 15000, 60000);
+            const wait = Math.min((attempt + 1) * 8000, 25000);
             console.warn(`[OpenRouter] Rate limited, retrying in ${wait / 1000}s (attempt ${attempt + 1}/${retries})`);
             await new Promise(r => setTimeout(r, wait));
             lastApiCall = Date.now();
@@ -113,7 +113,7 @@ ${history || 'No messages yet.'}
 
 What does ${botName} say next?`);
 
-    const response = await this.chat(prompt, 50);
+    const response = await this.chat(prompt, 150);
     if (response) return this.cleanResponse(response, botName, maxLength);
     return this.smartFallback(topic);
   }
@@ -144,7 +144,7 @@ ${history || 'No messages yet.'}
 
 What does ${botName} say?`);
 
-    const response = await this.chat(prompt, 50);
+    const response = await this.chat(prompt, 150);
     if (response) return this.cleanResponse(response, botName, maxLength);
     return this.smartFallback(topic);
   }
@@ -174,7 +174,7 @@ ${history || 'No messages yet.'}
 
 What does ${botName} say?`);
 
-    const response = await this.chat(prompt, 50);
+    const response = await this.chat(prompt, 150);
     if (response) return this.cleanResponse(response, botName, maxLength);
     return this.smartFallback(topic);
   }
@@ -206,7 +206,7 @@ ${history}
 
 What does ${botName} say?`);
 
-    const response = await this.chat(prompt, 40);
+    const response = await this.chat(prompt, 100);
     if (response) return this.cleanResponse(response, botName, maxLength);
     return this.topicRedirectFallback(topic);
   }
@@ -216,9 +216,16 @@ What does ${botName} say?`);
     text = text.replace(new RegExp(`^(bot|${botName}|assistant|ai):?\\s*`, 'gi'), '');
     text = text.replace(/^>\s*/, '');
     text = text.replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{1F900}-\u{1F9FF}\u{200D}\u{20E3}\u{E0020}-\u{E007F}]/gu, '');
-    text = text.split(/\n/)[0].trim();
-    const sentMatch = text.match(/^(.+?[.!?])(?:\s|$)/);
-    if (sentMatch) text = sentMatch[1];
+    text = text.replace(/\n+/g, ' ').replace(/\s+/g, ' ').trim();
+    const sentMatch = text.match(/^(.+?[.!?])\s/);
+    if (sentMatch && sentMatch[1].length > 10) {
+      text = sentMatch[1];
+    } else {
+      const commaMatch = text.match(/^(.+?,)\s/);
+      if (commaMatch && commaMatch[1].length > 10 && commaMatch[1].length < maxLength * 0.8) {
+        text = commaMatch[1];
+      }
+    }
     text = text.replace(/\s+/g, ' ').trim();
     if (text.length > maxLength) {
       text = text.substring(0, maxLength);
