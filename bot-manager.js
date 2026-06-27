@@ -397,6 +397,7 @@ class BotManager {
       const topic = await db.getSetting('topic') || 'general conversation';
       const customPrompt = await db.getSetting('custom_prompt') || '';
       const maxLen = parseInt(await db.getSetting('max_length') || '200');
+      const minLen = parseInt(await db.getSetting('min_length') || '10');
 
       const lastSender = this.msgQueue.lastSenderId;
       let eligibleBots = botEntries;
@@ -416,7 +417,7 @@ class BotManager {
       const firstReply = await this.gemini.generateReplyToMessage(
         firstBotData.name, firstBotData.personality, topic, customPrompt,
         message.author.username, message.content,
-        this.recentMessages.slice(-10), maxLen
+        this.recentMessages.slice(-10), maxLen, minLen
       );
 
       if (firstReply && firstReply.length > 0 && !this.isDuplicateMessage(firstReply)) {
@@ -445,7 +446,7 @@ class BotManager {
               const followReply = await this.gemini.generateFollowUp(
                 followUpData.name, followUpData.personality, topic, customPrompt,
                 message.author.username, message.content,
-                this.recentMessages.slice(-10), maxLen
+                this.recentMessages.slice(-10), maxLen, minLen
               );
 
               if (followReply && followReply.length > 0 && !this.isDuplicateMessage(followReply)) {
@@ -525,11 +526,12 @@ class BotManager {
       try {
         const topic = await db.getSetting('topic') || 'general conversation';
         const maxLen = parseInt(await db.getSetting('max_length') || '200');
+        const minLen = parseInt(await db.getSetting('min_length') || '10');
         const customPrompt = await db.getSetting('custom_prompt') || '';
 
         const reply = await this.gemini.generateReply(
           botData.name, botData.personality, topic,
-          this.recentMessages.slice(-10), maxLen, customPrompt
+          this.recentMessages.slice(-10), maxLen, minLen, customPrompt
         );
 
         if (!reply || reply.length === 0 || this.isDuplicateMessage(reply)) {

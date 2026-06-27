@@ -88,7 +88,7 @@ class GeminiChat {
     return section + antiLeak;
   }
 
-  async generateReply(botName, personality, topic, recentMessages = [], maxLength = 200, customPrompt = '') {
+  async generateReply(botName, personality, topic, recentMessages = [], maxLength = 200, minLength = 10, customPrompt = '') {
     const history = recentMessages.map(m => `${m.sender}: ${m.text}`).join('\n');
     const styleSection = customPrompt ? `\nTalking Style:\n${customPrompt}\n` : '';
 
@@ -114,11 +114,14 @@ ${history || 'No messages yet.'}
 What does ${botName} say next?`);
 
     const response = await this.chat(prompt, 150);
-    if (response) return this.cleanResponse(response, botName, maxLength);
+    if (response) {
+      const cleaned = this.cleanResponse(response, botName, maxLength);
+      if (cleaned.length >= minLength) return cleaned;
+    }
     return this.smartFallback(topic);
   }
 
-  async generateReplyToMessage(botName, personality, topic, customPrompt, authorName, messageContent, recentMessages = [], maxLength = 200) {
+  async generateReplyToMessage(botName, personality, topic, customPrompt, authorName, messageContent, recentMessages = [], maxLength = 200, minLength = 10) {
     const history = recentMessages.map(m => `${m.sender}: ${m.text}`).join('\n');
     const styleSection = customPrompt ? `\nTalking Style:\n${customPrompt}\n` : '';
 
@@ -145,11 +148,14 @@ ${history || 'No messages yet.'}
 What does ${botName} say?`);
 
     const response = await this.chat(prompt, 150);
-    if (response) return this.cleanResponse(response, botName, maxLength);
+    if (response) {
+      const cleaned = this.cleanResponse(response, botName, maxLength);
+      if (cleaned.length >= minLength) return cleaned;
+    }
     return this.smartFallback(topic);
   }
 
-  async generateFollowUp(botName, personality, topic, customPrompt, originalAuthor, originalMessage, recentMessages = [], maxLength = 200) {
+  async generateFollowUp(botName, personality, topic, customPrompt, originalAuthor, originalMessage, recentMessages = [], maxLength = 200, minLength = 10) {
     const history = recentMessages.map(m => `${m.sender}: ${m.text}`).join('\n');
     const styleSection = customPrompt ? `\nTalking Style:\n${customPrompt}\n` : '';
 
@@ -175,11 +181,14 @@ ${history || 'No messages yet.'}
 What does ${botName} say?`);
 
     const response = await this.chat(prompt, 150);
-    if (response) return this.cleanResponse(response, botName, maxLength);
+    if (response) {
+      const cleaned = this.cleanResponse(response, botName, maxLength);
+      if (cleaned.length >= minLength) return cleaned;
+    }
     return this.smartFallback(topic);
   }
 
-  async generateRedirect(botName, personality, topic, customPrompt, recentMessages = [], maxLength = 200) {
+  async generateRedirect(botName, personality, topic, customPrompt, recentMessages = [], maxLength = 200, minLength = 10) {
     const history = recentMessages.map(m => `${m.sender}: ${m.text}`).join('\n');
     const styleSection = customPrompt ? `\nTalking Style:\n${customPrompt}\n` : '';
 
@@ -207,7 +216,10 @@ ${history}
 What does ${botName} say?`);
 
     const response = await this.chat(prompt, 100);
-    if (response) return this.cleanResponse(response, botName, maxLength);
+    if (response) {
+      const cleaned = this.cleanResponse(response, botName, maxLength);
+      if (cleaned.length >= minLength) return cleaned;
+    }
     return this.topicRedirectFallback(topic);
   }
 

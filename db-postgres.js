@@ -48,6 +48,7 @@ async function ensureTables() {
             typing_min: '1500',
             typing_max: '2500',
             max_length: '200',
+            min_length: '10',
             topic_change_interval: '30',
             auto_reply: '1',
             chat_in_all_channels: '0',
