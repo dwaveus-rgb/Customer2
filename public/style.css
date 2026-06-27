@@ -237,10 +237,11 @@ input[type="text"], input[type="password"], input[type="number"], select, textar
   border-radius: 8px;
   cursor: pointer;
   font-size: 0.9rem;
-  transition: background 0.2s;
+  transition: all 0.2s;
 }
 
 .btn-primary:hover { background: var(--accent-hover); }
+.btn-primary:disabled { opacity: 0.6; cursor: wait; }
 
 .btn-danger {
   padding: 0.6rem 1.2rem;
@@ -250,10 +251,11 @@ input[type="text"], input[type="password"], input[type="number"], select, textar
   border-radius: 8px;
   cursor: pointer;
   font-size: 0.9rem;
-  transition: background 0.2s;
+  transition: all 0.2s;
 }
 
 .btn-danger:hover { background: var(--danger-hover); }
+.btn-danger:disabled { opacity: 0.6; cursor: wait; }
 
 .btn-secondary {
   padding: 0.6rem 1.2rem;
@@ -275,7 +277,10 @@ input[type="text"], input[type="password"], input[type="number"], select, textar
   border-radius: 6px;
   cursor: pointer;
   font-size: 0.8rem;
+  transition: all 0.2s;
 }
+
+.btn-success:disabled { opacity: 0.6; cursor: wait; }
 
 .btn-small-danger {
   padding: 0.4rem 0.8rem;
@@ -285,6 +290,40 @@ input[type="text"], input[type="password"], input[type="number"], select, textar
   border-radius: 6px;
   cursor: pointer;
   font-size: 0.8rem;
+  transition: all 0.2s;
+}
+
+.btn-small-danger:disabled { opacity: 0.6; cursor: wait; }
+
+.btn-loading {
+  position: relative;
+  pointer-events: none;
+}
+
+.btn-loading::after {
+  content: '';
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.btn-pulse {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
 .topic-display {

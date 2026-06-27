@@ -133,30 +133,56 @@ async function addBot() {
 
 async function deleteBot(id) {
   if (!confirm('Delete this bot?')) return;
+  const btn = event.target;
+  btn.disabled = true;
+  btn.textContent = 'Deleting...';
   await fetch('/api/bots/' + id, { method: 'DELETE' });
   loadBots();
   loadDashboard();
 }
 
 async function startBot(id) {
+  const btn = event.target;
+  btn.disabled = true;
+  btn.classList.add('btn-loading');
+  btn.innerHTML = 'Starting';
   await fetch('/api/bots/' + id + '/start', { method: 'POST' });
-  setTimeout(() => { loadBots(); loadDashboard(); }, 2000);
+  btn.classList.remove('btn-loading');
+  loadBots();
+  loadDashboard();
 }
 
 async function stopBot(id) {
+  const btn = event.target;
+  btn.disabled = true;
+  btn.classList.add('btn-loading');
+  btn.innerHTML = 'Stopping';
   await fetch('/api/bots/' + id + '/stop', { method: 'POST' });
+  btn.classList.remove('btn-loading');
   loadBots();
   loadDashboard();
 }
 
 async function startAllBots() {
+  const btn = event.target;
+  btn.disabled = true;
+  btn.classList.add('btn-loading', 'btn-pulse');
+  btn.innerHTML = 'Starting All';
   await fetch('/api/bots/start-all', { method: 'POST' });
-  setTimeout(() => { loadBots(); loadDashboard(); }, 3000);
+  btn.classList.remove('btn-loading', 'btn-pulse');
+  loadBots();
+  loadDashboard();
 }
 
 async function stopAllBots() {
+  const btn = event.target;
+  btn.disabled = true;
+  btn.classList.add('btn-loading', 'btn-pulse');
+  btn.innerHTML = 'Stopping All';
   await fetch('/api/bots/stop-all', { method: 'POST' });
-  setTimeout(() => { loadBots(); loadDashboard(); }, 1000);
+  btn.classList.remove('btn-loading', 'btn-pulse');
+  loadBots();
+  loadDashboard();
 }
 
 function refreshDashboard() {
