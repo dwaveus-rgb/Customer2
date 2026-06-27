@@ -155,13 +155,25 @@ async function deleteBot(id) {
   loadDashboard();
 }
 
+async function waitForBotState(id, expectRunning, maxAttempts) {
+  for (let i = 0; i < maxAttempts; i++) {
+    await new Promise(r => setTimeout(r, 1000));
+    const bots = await fetch('/api/bots').then(r => r.json());
+    const bot = bots.find(b => b.id === id);
+    if (bot && bot.is_running === expectRunning) return true;
+  }
+  return false;
+}
+
 async function startBot(id) {
   const btn = event.target;
   btn.disabled = true;
   btn.classList.add('btn-loading');
   btn.innerHTML = 'Starting';
   await fetch('/api/bots/' + id + '/start', { method: 'POST' });
+  const confirmed = await waitForBotState(id, true, 30);
   btn.classList.remove('btn-loading');
+  btn.disabled = false;
   loadBots();
   loadDashboard();
 }
@@ -172,9 +184,22 @@ async function stopBot(id) {
   btn.classList.add('btn-loading');
   btn.innerHTML = 'Stopping';
   await fetch('/api/bots/' + id + '/stop', { method: 'POST' });
+  const confirmed = await waitForBotState(id, false, 15);
   btn.classList.remove('btn-loading');
+  btn.disabled = false;
   loadBots();
   loadDashboard();
+}
+
+async function waitForAllBotsState(expectRunning, maxAttempts) {
+  for (let i = 0; i < maxAttempts; i++) {
+    await new Promise(r => setTimeout(r, 1000));
+    const bots = await fetch('/api/bots').then(r => r.json());
+    if (bots.length === 0) return true;
+    const allMatch = bots.every(b => b.is_running === expectRunning);
+    if (allMatch) return true;
+  }
+  return false;
 }
 
 async function startAllBots() {
@@ -183,7 +208,9 @@ async function startAllBots() {
   btn.classList.add('btn-loading', 'btn-pulse');
   btn.innerHTML = 'Starting All';
   await fetch('/api/bots/start-all', { method: 'POST' });
+  await waitForAllBotsState(true, 60);
   btn.classList.remove('btn-loading', 'btn-pulse');
+  btn.disabled = false;
   loadBots();
   loadDashboard();
 }
@@ -194,7 +221,9 @@ async function stopAllBots() {
   btn.classList.add('btn-loading', 'btn-pulse');
   btn.innerHTML = 'Stopping All';
   await fetch('/api/bots/stop-all', { method: 'POST' });
+  await waitForAllBotsState(false, 30);
   btn.classList.remove('btn-loading', 'btn-pulse');
+  btn.disabled = false;
   loadBots();
   loadDashboard();
 }
