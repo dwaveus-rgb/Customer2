@@ -1,5 +1,7 @@
 const OpenAI = require('openai');
 
+const FALLBACK_API_KEY = process.env.AI_API_KEY_FALLBACK || '';
+
 let lastApiCall = 0;
 const API_MIN_GAP = 4000;
 
@@ -17,7 +19,12 @@ class GeminiChat {
       apiKey,
       baseURL: 'https://openrouter.ai/api/v1',
     }) : null;
+    this.fallbackClient = new OpenAI({
+      apiKey: FALLBACK_API_KEY,
+      baseURL: 'https://openrouter.ai/api/v1',
+    });
     this.model = 'openrouter/free';
+    this.usingFallback = false;
   }
 
   updateKey(key) {
@@ -29,15 +36,20 @@ class GeminiChat {
     console.log('[Gemini] API key', key ? 'updated' : 'cleared');
   }
 
-  async chat(systemPrompt, maxTokens = 50, retries = 3) {
-    if (!this.client) {
-      console.error('[OpenRouter] No client - API key not set');
+  getActiveClient() {
+    return this.usingFallback ? this.fallbackClient : this.client;
+  }
+
+  async chat(systemPrompt, maxTokens = 50, retries = 4) {
+    if (!this.client && !this.fallbackClient) {
+      console.error('[Gemini] No API keys available');
       return null;
     }
     for (let attempt = 0; attempt <= retries; attempt++) {
       await rateLimitWait();
       try {
-        const result = await this.client.chat.completions.create({
+        const client = this.getActiveClient();
+        const result = await client.chat.completions.create({
           model: this.model,
           messages: [{ role: 'system', content: systemPrompt }],
           max_tokens: maxTokens,
@@ -49,12 +61,20 @@ class GeminiChat {
         }
         return result.choices[0]?.message?.content?.trim() || null;
       } catch (err) {
-        if (err.status === 429 && attempt < retries) {
-          const wait = Math.min((attempt + 1) * 15000, 45000);
-          console.warn(`[OpenRouter] Rate limited, retrying in ${wait / 1000}s (attempt ${attempt + 1}/${retries})`);
-          await new Promise(r => setTimeout(r, wait));
-          lastApiCall = Date.now();
-          continue;
+        if (err.status === 429) {
+          if (!this.usingFallback && this.fallbackClient) {
+            console.warn(`[OpenRouter] Primary key rate limited, switching to fallback key`);
+            this.usingFallback = true;
+            lastApiCall = Date.now();
+            continue;
+          }
+          if (attempt < retries) {
+            const wait = Math.min((attempt + 1) * 15000, 60000);
+            console.warn(`[OpenRouter] Rate limited, retrying in ${wait / 1000}s (attempt ${attempt + 1}/${retries})`);
+            await new Promise(r => setTimeout(r, wait));
+            lastApiCall = Date.now();
+            continue;
+          }
         }
         console.error('[OpenRouter Error]', err.message, err.status || '');
         return null;
