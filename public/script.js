@@ -247,7 +247,7 @@ async function updateTopic() {
 
 async function saveSettings() {
   const fields = [
-    'min_delay', 'max_delay',
+    'min_delay', 'max_delay', 'per_message_delay',
     'typing_min', 'typing_max', 'max_length', 'min_length',
     'server_id', 'channel_id', 'custom_prompt',
     'reaction_chance', 'reply_chance',

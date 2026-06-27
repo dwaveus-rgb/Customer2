@@ -58,6 +58,7 @@ async function ensureTables() {
             reply_chance: '80',
             reply_delay_min: '200',
             reply_delay_max: '500',
+            per_message_delay: '10',
             follow_up_delay_min: '300',
             follow_up_delay_max: '800',
             off_topic_tolerance: '5',

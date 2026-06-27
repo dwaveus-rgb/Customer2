@@ -126,10 +126,14 @@ class MessageQueue {
           }
         }
 
+        const perMsgDelaySec = parseInt(await db.getSetting('per_message_delay') || '10');
+        const perMsgDelayMs = Math.max(1000, perMsgDelaySec * 1000);
         const now = Date.now();
-        const waitMs = this.minGapBetweenMessages - (now - this.lastSendTime);
-        if (waitMs > 0) {
-          await this.delay(waitMs);
+        if (!task.isMemberReply) {
+          const waitMs = perMsgDelayMs - (now - this.lastSendTime);
+          if (waitMs > 0) {
+            await this.delay(waitMs);
+          }
         }
 
         this.queue.shift();
@@ -405,6 +409,7 @@ class BotManager {
       await this.msgQueue.pauseCurrentTyping();
       this.msgQueue.clearQueue(task => task.type === 'bot');
       this.msgQueue.lastSenderId = 'member';
+      this.msgQueue.lastSendTime = 0;
 
       const reactionChance = parseInt(await db.getSetting('reaction_chance') || '20');
       this.scheduleReaction(message, channelId, reactionChance).catch(() => {});
@@ -446,7 +451,8 @@ class BotManager {
           senderName: firstBotData.name,
           token: firstBotData.token,
           content: firstReply,
-          replyToId: message.id
+          replyToId: message.id,
+          isMemberReply: true
         });
 
         await this.delay(this.randomDelay(300, 600));
@@ -474,7 +480,8 @@ class BotManager {
                   senderName: followUpData.name,
                   token: followUpData.token,
                   content: followReply,
-                  replyToId: message.id
+                  replyToId: message.id,
+                  isMemberReply: true
                 });
               }
             }
@@ -482,11 +489,15 @@ class BotManager {
         }
 
         await this.delay(300);
+        this.msgQueue.lastSendTime = 0;
+        this.msgQueue.holdQueue = false;
+      } else {
         this.msgQueue.holdQueue = false;
       }
     } catch (err) {
       console.error(`[BotManager] Message handling error: ${err.message}`);
       this.msgQueue.holdQueue = false;
+      this.msgQueue.lastSendTime = 0;
     }
   }
 
