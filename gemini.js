@@ -19,27 +19,36 @@ class GeminiChat {
     console.log('[Gemini] API key', key ? 'updated' : 'cleared');
   }
 
-  async chat(systemPrompt, maxTokens = 50) {
+  async chat(systemPrompt, maxTokens = 50, retries = 2) {
     if (!this.client) {
       console.error('[OpenRouter] No client - API key not set');
       return null;
     }
-    try {
-      const result = await this.client.chat.completions.create({
-        model: this.model,
-        messages: [{ role: 'system', content: systemPrompt }],
-        max_tokens: maxTokens,
-        temperature: 0.9,
-      });
-      if (!result || !result.choices || !result.choices.length) {
-        console.error('[OpenRouter] Empty result:', JSON.stringify(result).slice(0, 200));
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const result = await this.client.chat.completions.create({
+          model: this.model,
+          messages: [{ role: 'system', content: systemPrompt }],
+          max_tokens: maxTokens,
+          temperature: 0.9,
+        });
+        if (!result || !result.choices || !result.choices.length) {
+          console.error('[OpenRouter] Empty result:', JSON.stringify(result).slice(0, 200));
+          return null;
+        }
+        return result.choices[0]?.message?.content?.trim() || null;
+      } catch (err) {
+        if (err.status === 429 && attempt < retries) {
+          const wait = (attempt + 1) * 10000;
+          console.warn(`[OpenRouter] Rate limited, retrying in ${wait / 1000}s (attempt ${attempt + 1}/${retries})`);
+          await new Promise(r => setTimeout(r, wait));
+          continue;
+        }
+        console.error('[OpenRouter Error]', err.message, err.status || '');
         return null;
       }
-      return result.choices[0]?.message?.content?.trim() || null;
-    } catch (err) {
-      console.error('[OpenRouter Error]', err.message, err.status || '');
-      return null;
     }
+    return null;
   }
 
   async generateReply(botName, personality, topic, recentMessages = [], maxLength = 200, customPrompt = '') {
