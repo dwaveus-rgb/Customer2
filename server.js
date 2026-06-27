@@ -28,7 +28,6 @@ app.put('/api/settings', async (req, res) => {
         await db.setSetting(key, value);
       }
     }
-    if (settings.ai_api_key && settings.ai_api_key !== '') await botManager.updateGeminiKeys();
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

@@ -43,7 +43,6 @@ async function ensureTables() {
 
           const defaults = {
             topic: 'what is the best discord server and why',
-            ai_api_key: process.env.AI_API_KEY || '',
             min_delay: '3000',
             max_delay: '5000',
             typing_min: '1500',

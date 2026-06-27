@@ -249,10 +249,8 @@ class BotManager {
 
   async loadApiKeys() {
     const keys = [];
-    const dbKey = await db.getSetting('ai_api_key');
-    if (dbKey) {
-      dbKey.split(',').map(k => k.trim()).filter(Boolean).forEach(k => keys.push(k));
-    }
+    const primary = process.env.AI_API_KEY;
+    if (primary) keys.push(primary);
     for (let i = 2; i <= 10; i++) {
       const envKey = process.env[`AI_API_KEY_${i}`];
       if (envKey && !keys.includes(envKey)) keys.push(envKey);
