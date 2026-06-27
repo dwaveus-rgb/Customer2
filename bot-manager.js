@@ -140,7 +140,8 @@ class BotManager {
     }, 30000);
 
     client.on(Events.MessageCreate, async (message) => {
-      if (message.channel.id !== botData.channel_id) return;
+      const liveChannelId = await db.getSetting('channel_id');
+      if (message.channel.id !== liveChannelId) return;
 
       // Member message — only first bot by Map key order processes it
       if (!message.author.bot) {
@@ -160,7 +161,7 @@ class BotManager {
         this.recentMessages.push(msgData);
         if (this.recentMessages.length > this.maxRecent) this.recentMessages.shift();
 
-        await this.handleMemberMessage(message, botData.channel_id);
+        await this.handleMemberMessage(message, liveChannelId);
         return;
       }
 
@@ -348,6 +349,7 @@ class BotManager {
 
       try {
         console.log(`[BotManager] ${botData.name} generating reply...`);
+        const liveChannelId = await db.getSetting('channel_id');
         const typingDuration = this.randomDelay(
           parseInt(await db.getSetting('typing_min') || '3000'),
           parseInt(await db.getSetting('typing_max') || '8000')
@@ -372,8 +374,8 @@ class BotManager {
           return;
         }
 
-        await this.simulateTyping(botData.token, botData.channel_id, typingDuration);
-        await rawFetch(botData.token, 'POST', `/channels/${botData.channel_id}/messages`, { content: reply });
+        await this.simulateTyping(botData.token, liveChannelId, typingDuration);
+        await rawFetch(botData.token, 'POST', `/channels/${liveChannelId}/messages`, { content: reply });
 
         this.globalLastMessage = Date.now();
         this.lastTimerBotId = botId;
@@ -476,7 +478,8 @@ class BotManager {
   async sendManualMessage(botId, message) {
     const entry = this.bots.get(botId);
     if (!entry) throw new Error('Bot not running');
-    await rawFetch(entry.data.token, 'POST', `/channels/${entry.data.channel_id}/messages`, { content: message });
+    const liveChannelId = await db.getSetting('channel_id');
+    await rawFetch(entry.data.token, 'POST', `/channels/${liveChannelId}/messages`, { content: message });
   }
 }
 
