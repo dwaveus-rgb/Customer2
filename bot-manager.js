@@ -68,9 +68,10 @@ class MessageQueue {
     this.lastSenderId = null;
     this.currentBotTyping = null;
     this.typingAbort = null;
-    this.minGapBetweenMessages = 500;
+    this.minGapBetweenMessages = 800;
     this.lastSendTime = 0;
     this.holdQueue = false;
+    this.sentMessageIds = new Map();
   }
 
   enqueue(task) {
@@ -161,6 +162,7 @@ class MessageQueue {
         console.log(`[Queue] ${task.senderName} typing aborted`);
         this.currentBotTyping = null;
         this.typingAbort = null;
+        this.lastSenderId = task.senderId;
         return;
       }
       this.currentBotTyping = null;
@@ -174,14 +176,29 @@ class MessageQueue {
     const content = task.content;
     const body = { content };
     if (task.replyToId) {
-      const replyChance = parseInt(await db.getSetting('reply_chance') || '80');
-      if (Math.random() * 100 < replyChance) {
-        body.message_reference = { message_id: task.replyToId };
+      const senderIds = this.sentMessageIds.get(task.senderId);
+      const isOwnMessage = senderIds && senderIds.has(task.replyToId);
+      if (!isOwnMessage) {
+        const replyChance = parseInt(await db.getSetting('reply_chance') || '80');
+        if (Math.random() * 100 < replyChance) {
+          body.message_reference = { message_id: task.replyToId };
+        }
       }
     }
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        await rawFetch(task.token, 'POST', `/channels/${liveChannelId}/messages`, body);
+        const response = await rawFetch(task.token, 'POST', `/channels/${liveChannelId}/messages`, body);
+        if (response && response.id) {
+          if (!this.sentMessageIds.has(task.senderId)) {
+            this.sentMessageIds.set(task.senderId, new Set());
+          }
+          this.sentMessageIds.get(task.senderId).add(response.id);
+          const ids = this.sentMessageIds.get(task.senderId);
+          if (ids.size > 100) {
+            const first = ids.values().next().value;
+            ids.delete(first);
+          }
+        }
         this.lastSenderId = task.senderId;
         this.lastSendTime = Date.now();
         this.bm.recentMessages.push({ sender: task.senderName, text: content, botId: task.senderId, timestamp: Date.now() });
@@ -387,6 +404,7 @@ class BotManager {
     try {
       await this.msgQueue.pauseCurrentTyping();
       this.msgQueue.clearQueue(task => task.type === 'bot');
+      this.msgQueue.lastSenderId = 'member';
 
       const reactionChance = parseInt(await db.getSetting('reaction_chance') || '20');
       this.scheduleReaction(message, channelId, reactionChance).catch(() => {});
@@ -569,6 +587,7 @@ class BotManager {
 
   async scheduleReaction(message, channelId, reactionChance) {
     if (Math.random() * 100 > reactionChance) return;
+    if (message.author.bot) return;
     const botEntries = [...this.bots.entries()];
     if (botEntries.length === 0) return;
 
