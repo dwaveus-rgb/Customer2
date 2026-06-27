@@ -68,7 +68,7 @@ class MessageQueue {
     this.lastSenderId = null;
     this.currentBotTyping = null;
     this.typingAbort = null;
-    this.minGapBetweenMessages = 8000;
+    this.minGapBetweenMessages = 3000;
     this.lastSendTime = 0;
     this.holdQueue = false;
   }
@@ -147,10 +147,11 @@ class MessageQueue {
     const liveChannelId = await db.getSetting('channel_id');
     if (!liveChannelId) return;
 
-    const typingDuration = this.bm.randomDelay(
-      parseInt(await db.getSetting('typing_min') || '3000'),
-      parseInt(await db.getSetting('typing_max') || '8000')
-    );
+    const words = task.content.split(/\s+/).length;
+    const charLen = task.content.length;
+    const smartTypingMs = Math.min(Math.max(800 + charLen * 40 + words * 200, 1500), 5000);
+    const jitter = this.bm.randomDelay(-500, 500);
+    const typingDuration = Math.max(1000, smartTypingMs + jitter);
 
     const abort = new AbortController();
     this.currentBotTyping = task.senderId;
@@ -386,10 +387,10 @@ class BotManager {
       const customPrompt = await db.getSetting('custom_prompt') || '';
       const maxLen = parseInt(await db.getSetting('max_length') || '200');
 
-      const replyDelayMin = parseInt(await db.getSetting('reply_delay_min') || '2000');
-      const replyDelayMax = parseInt(await db.getSetting('reply_delay_max') || '8000');
-      const followUpDelayMin = parseInt(await db.getSetting('follow_up_delay_min') || '5000');
-      const followUpDelayMax = parseInt(await db.getSetting('follow_up_delay_max') || '15000');
+      const replyDelayMin = parseInt(await db.getSetting('reply_delay_min') || '1000');
+      const replyDelayMax = parseInt(await db.getSetting('reply_delay_max') || '4000');
+      const followUpDelayMin = parseInt(await db.getSetting('follow_up_delay_min') || '2000');
+      const followUpDelayMax = parseInt(await db.getSetting('follow_up_delay_max') || '6000');
 
       const lastSender = this.msgQueue.lastSenderId;
       let eligibleBots = botEntries;
@@ -421,9 +422,7 @@ class BotManager {
           content: firstReply
         });
 
-        await this.msgQueue.delay(
-          this.msgQueue.minGapBetweenMessages + this.randomDelay(1000, 3000)
-        );
+        await this.msgQueue.delay(this.msgQueue.minGapBetweenMessages);
 
         if (botEntries.length > 1) {
           const availableFollowUps = botEntries.filter(([id]) => id !== firstBotData.id);
@@ -453,7 +452,7 @@ class BotManager {
           }
         }
 
-        await this.msgQueue.delay(this.msgQueue.minGapBetweenMessages + 2000);
+        await this.msgQueue.delay(this.msgQueue.minGapBetweenMessages);
         this.msgQueue.holdQueue = false;
       }
     } catch (err) {
@@ -484,8 +483,8 @@ class BotManager {
       const entry = this.bots.get(botId);
       const botData = entry.data;
 
-      const minCooldown = parseInt(await db.getSetting('min_delay') || '15000');
-      const maxCooldown = parseInt(await db.getSetting('max_delay') || '45000');
+      const minCooldown = parseInt(await db.getSetting('min_delay') || '8000');
+      const maxCooldown = parseInt(await db.getSetting('max_delay') || '20000');
       const now = Date.now();
       const botCooldown = this.cooldowns.get(botId) || 0;
 
@@ -495,8 +494,8 @@ class BotManager {
       }
 
       const timeSinceMemberMsg = now - this.lastMemberMessage;
-      if (this.lastMemberMessage > 0 && timeSinceMemberMsg < 60000) {
-        setTimeout(runChat, 60000 - timeSinceMemberMsg + 5000);
+      if (this.lastMemberMessage > 0 && timeSinceMemberMsg < 15000) {
+        setTimeout(runChat, 15000 - timeSinceMemberMsg + 2000);
         return;
       }
 
@@ -554,7 +553,7 @@ class BotManager {
       }
     };
 
-    const initialDelay = this.randomDelay(5000, 15000);
+    const initialDelay = this.randomDelay(3000, 8000);
     console.log(`[BotManager] scheduleActivity started for ${botId}, initial delay ${initialDelay}ms`);
     setTimeout(runChat, initialDelay);
   }
