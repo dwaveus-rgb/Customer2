@@ -68,7 +68,7 @@ class MessageQueue {
     this.lastSenderId = null;
     this.currentBotTyping = null;
     this.typingAbort = null;
-    this.minGapBetweenMessages = 2000;
+    this.minGapBetweenMessages = 500;
     this.lastSendTime = 0;
     this.holdQueue = false;
   }
@@ -149,8 +149,8 @@ class MessageQueue {
 
     const charLen = task.content.length;
     const wordCount = task.content.split(/\s+/).length;
-    const smartTypingMs = Math.min(Math.max(1000 + charLen * 30 + wordCount * 150, 1500), 5000);
-    const jitter = this.bm.randomDelay(-300, 300);
+    const smartTypingMs = Math.min(Math.max(1000 + charLen * 15 + wordCount * 80, 1500), 2500);
+    const jitter = this.bm.randomDelay(-200, 200);
     const typingDuration = Math.max(1500, smartTypingMs + jitter);
 
     const abort = new AbortController();
@@ -483,8 +483,8 @@ class BotManager {
       const entry = this.bots.get(botId);
       const botData = entry.data;
 
-      const minCooldown = Math.max(3000, parseInt(await db.getSetting('min_delay') || '5000'));
-      const maxCooldown = Math.max(minCooldown + 1000, parseInt(await db.getSetting('max_delay') || '12000'));
+      const minCooldown = Math.max(2000, parseInt(await db.getSetting('min_delay') || '3000'));
+      const maxCooldown = Math.max(minCooldown + 1000, parseInt(await db.getSetting('max_delay') || '5000'));
       const now = Date.now();
       const botCooldown = this.cooldowns.get(botId) || 0;
 
@@ -511,7 +511,7 @@ class BotManager {
 
       const lastSender = this.msgQueue.lastSenderId;
       if (lastSender && String(lastSender) === String(botId)) {
-        setTimeout(runChat, this.randomDelay(2000, 4000));
+        setTimeout(runChat, this.randomDelay(1500, 3000));
         return;
       }
 
